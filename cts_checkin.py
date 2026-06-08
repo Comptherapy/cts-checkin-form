@@ -262,7 +262,7 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-    components.html(SIGNATURE_HTML, height=220)
+    components.html(SIGNATURE_HTML + f"<!-- {st.session_state.form_key} -->", height=220)
 
     sig_input = st.text_input("Signature data (auto-filled)", key=f"sig_capture_{st.session_state.form_key}",
                                label_visibility="collapsed",
