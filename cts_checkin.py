@@ -1,8 +1,10 @@
 import streamlit as st
-import streamlit.components.v1 as components
+from streamlit_drawable_canvas import st_canvas
 from datetime import datetime
 import base64, json, io, os, requests
 from pathlib import Path
+from PIL import Image
+import numpy as np
 
 st.set_page_config(page_title="CTS Patient Check-In", page_icon="🏥", layout="centered")
 
@@ -57,56 +59,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Signature pad component ────────────────────────────────────────────────────
-SIGNATURE_HTML = """
-<div style="font-family:Arial,sans-serif;">
-  <canvas id="sigPad" width="520" height="160"
-    style="border:2px solid #ccc;border-radius:6px;background:#fff;cursor:crosshair;display:block;"></canvas>
-  <div style="margin-top:8px;display:flex;gap:12px;">
-    <button onclick="clearSig()"
-      style="padding:6px 18px;border:1px solid #aaa;border-radius:4px;cursor:pointer;background:#f5f5f5;">
-      Clear / Limpiar
-    </button>
-    <span id="sigStatus" style="color:#888;font-size:13px;line-height:2.2;">Sign above / Firme arriba</span>
-  </div>
-  <input type="hidden" id="sigData" value="">
-</div>
-<script>
-const canvas = document.getElementById('sigPad');
-const ctx = canvas.getContext('2d');
-let drawing = false, hasSig = false;
-ctx.strokeStyle = '#1a237e';
-ctx.lineWidth = 2.5;
-ctx.lineCap = 'round';
-
-function getPos(e) {
-  const r = canvas.getBoundingClientRect();
-  if (e.touches) return {x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top};
-  return {x: e.clientX - r.left, y: e.clientY - r.top};
-}
-canvas.addEventListener('mousedown',  e => { drawing=true; ctx.beginPath(); const p=getPos(e); ctx.moveTo(p.x,p.y); });
-canvas.addEventListener('mousemove',  e => { if(!drawing) return; const p=getPos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); hasSig=true; });
-canvas.addEventListener('mouseup',    () => { drawing=false; saveData(); });
-canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing=true; ctx.beginPath(); const p=getPos(e); ctx.moveTo(p.x,p.y); }, {passive:false});
-canvas.addEventListener('touchmove',  e => { e.preventDefault(); if(!drawing) return; const p=getPos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); hasSig=true; }, {passive:false});
-canvas.addEventListener('touchend',   () => { drawing=false; saveData(); });
-
-function saveData() {
-  if (!hasSig) return;
-  document.getElementById('sigData').value = canvas.toDataURL('image/png');
-  document.getElementById('sigStatus').textContent = '✅ Signature captured';
-  document.getElementById('sigStatus').style.color = '#2e7d32';
-}
-function clearSig() {
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  hasSig = false;
-  document.getElementById('sigData').value = '';
-  document.getElementById('sigStatus').textContent = 'Sign above / Firme arriba';
-  document.getElementById('sigStatus').style.color = '#888';
-}
-</script>
-"""
-
 # ── Zapier & Dropbox config ────────────────────────────────────────────────────
 ZAPIER_WEBHOOK = "https://hooks.zapier.com/hooks/catch/27775252/4btlt88/"
 
@@ -134,7 +86,7 @@ def save_pdf_to_dropbox(pdf_bytes, filename):
     except Exception as e:
         return False, str(e)
 
-def build_pdf(first, last, dob, parent, sig_b64, checkin_time):
+def build_pdf(first, last, dob, parent, sig_image, checkin_time):
     from reportlab.lib.pagesizes import letter
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -182,16 +134,27 @@ def build_pdf(first, last, dob, parent, sig_b64, checkin_time):
                                 borderRadius=4, spaceAfter=10)
     story.append(Paragraph(f"{attest_en}<br/><br/><i>{attest_es}</i>", box_style))
 
-    if sig_b64 and sig_b64.startswith("data:image"):
-        img_data = base64.b64decode(sig_b64.split(",")[1])
-        img_buf  = io.BytesIO(img_data)
-        sig_img  = RLImage(img_buf, width=3.5*inch, height=1.1*inch)
-        story.append(Paragraph("<b>Parent/Guardian Signature / Firma del Padre o Tutor:</b>", styles['Normal']))
-        story.append(Spacer(1, 0.05*inch))
-        story.append(sig_img)
-    story.append(Spacer(1, 0.1*inch))
-    story.append(Paragraph(f"Signed at: {checkin_time}", ParagraphStyle('ts', fontSize=8, textColor=colors.grey)))
+    # Signature from canvas
+    story.append(Paragraph("<b>Parent/Guardian Signature / Firma del Padre o Tutor:</b>", styles['Normal']))
+    story.append(Spacer(1, 0.05*inch))
+    if sig_image is not None:
+        img_buf = io.BytesIO()
+        sig_pil = Image.fromarray(sig_image.astype('uint8'), 'RGBA')
+        # White background
+        background = Image.new('RGBA', sig_pil.size, (255, 255, 255, 255))
+        background.paste(sig_pil, mask=sig_pil.split()[3])
+        background = background.convert('RGB')
+        background.save(img_buf, format='PNG')
+        img_buf.seek(0)
+        sig_rl = RLImage(img_buf, width=3.5*inch, height=1.0*inch)
+        story.append(sig_rl)
+    else:
+        story.append(Paragraph("<i>No signature captured</i>",
+                                ParagraphStyle('ns', fontSize=9, textColor=colors.grey)))
 
+    story.append(Spacer(1, 0.1*inch))
+    story.append(Paragraph(f"Signed at: {checkin_time}",
+                            ParagraphStyle('ts', fontSize=8, textColor=colors.grey)))
     doc.build(story)
     return buf.getvalue()
 
@@ -262,13 +225,19 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-    components.html(SIGNATURE_HTML + f"<!-- {st.session_state.form_key} -->", height=220)
+    st.markdown("**Sign below / Firme abajo:**")
+    canvas_result = st_canvas(
+        fill_color="rgba(255, 255, 255, 0)",
+        stroke_width=2,
+        stroke_color="#1a237e",
+        background_color="#ffffff",
+        height=160,
+        width=600,
+        drawing_mode="freedraw",
+        key=f"canvas_{st.session_state.form_key}",
+    )
 
-    sig_input = st.text_input("Signature data (auto-filled)", key=f"sig_capture_{st.session_state.form_key}",
-                               label_visibility="collapsed",
-                               placeholder="Signature will appear here after signing above")
-
-    st.caption("On iPad, use your finger to sign in the box above.")
+    st.caption("Use your finger on iPad or mouse on desktop to sign above.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     if st.button("✅  Submit Check-In / Enviar Registro", use_container_width=True, type="primary"):
@@ -281,12 +250,19 @@ else:
         if errors:
             st.error(f"Please fill in: {', '.join(errors)}")
         else:
+            # Check if anything was drawn
+            sig_image = None
+            if canvas_result.image_data is not None:
+                arr = canvas_result.image_data
+                if arr[:,:,3].max() > 0:  # alpha channel — something was drawn
+                    sig_image = arr
+
             checkin_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             filename = f"{last.strip()}_{first.strip()}_{datetime.now().strftime('%H%M%S')}.pdf"
 
             with st.spinner("Saving your check-in..."):
                 pdf_bytes = build_pdf(first.strip(), last.strip(), dob.strip(),
-                                      parent.strip(), sig_input.strip(), checkin_time)
+                                      parent.strip(), sig_image, checkin_time)
                 ok, err = save_pdf_to_dropbox(pdf_bytes, filename)
                 fire_zapier(first.strip(), last.strip())
 
