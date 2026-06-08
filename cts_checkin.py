@@ -305,6 +305,8 @@ def reset():
     st.session_state.step = "welcome"
     st.session_state.submitted = False
     st.session_state.form_key += 1
+    for k in ["saved_first", "saved_last", "saved_dob"]:
+        st.session_state.pop(k, None)
     st.rerun()
 
 # ── Progress bar renderer ──────────────────────────────────────────────────────
@@ -394,8 +396,8 @@ elif st.session_state.step == "step1":
             if not first.strip() or not last.strip():
                 st.error("Please enter both first and last name.")
             else:
-                st.session_state[f"first_{st.session_state.form_key}"] = first
-                st.session_state[f"last_{st.session_state.form_key}"] = last
+                st.session_state["saved_first"] = first.strip()
+                st.session_state["saved_last"] = last.strip()
                 st.session_state.step = "step2"
                 st.rerun()
 
@@ -512,9 +514,9 @@ elif st.session_state.step == "step3":
     with col_submit:
         if st.button("✅ Submit Check-In / Enviar Registro", use_container_width=True, type="primary"):
             # Pull saved values from state
-            first  = st.session_state.get(f"first_{st.session_state.form_key}", "").strip()
-            last   = st.session_state.get(f"last_{st.session_state.form_key}", "").strip()
-            dob    = st.session_state.get(f"dob_{st.session_state.form_key}", "").strip()
+            first  = st.session_state.get("saved_first", "").strip()
+            last   = st.session_state.get("saved_last", "").strip()
+            dob    = st.session_state.get("saved_dob", "").strip()
 
             errors = []
             if not parent.strip(): errors.append("Parent/Guardian Name")
