@@ -466,8 +466,8 @@ elif st.session_state.step == "step3":
         stroke_width=2,
         stroke_color="#1a237e",
         background_color="#ffffff",
-        height=160,
-        width=560,
+        height=200,
+        width=820,
         drawing_mode="freedraw",
         key=f"canvas_{st.session_state.form_key}",
     )
