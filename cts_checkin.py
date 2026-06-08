@@ -217,6 +217,8 @@ def fire_zapier(first, last):
 # ── State ──────────────────────────────────────────────────────────────────────
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
+if "form_key" not in st.session_state:
+    st.session_state.form_key = 0
 
 # ── Success screen ─────────────────────────────────────────────────────────────
 if st.session_state.submitted:
