@@ -7,7 +7,7 @@ from pathlib import Path
 st.set_page_config(page_title="CTS Patient Check-In", page_icon="🏥", layout="centered")
 
 # ── Load logo ──────────────────────────────────────────────────────────────────
-logo_path = Path(__file__).parent / "cts_logo.png"
+logo_path = Path(__file__).parent / "Horizontal Block.png"
 if logo_path.exists():
     with open(logo_path, "rb") as f:
         logo_b64 = base64.b64encode(f.read()).decode()
