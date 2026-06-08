@@ -1,3 +1,5 @@
 reportlab
 dropbox
 requests
+streamlit-drawable-canvas
+Pillow
