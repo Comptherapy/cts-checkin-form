@@ -21,17 +21,24 @@ else:
 # ── Styling ────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <style>
-    /* Full-page blue gradient background */
+    /* ── Landscape iPad kiosk ── */
     .stApp {{
         background: linear-gradient(145deg, #3a9dbf 0%, #2280a0 100%) !important;
         min-height: 100vh;
     }}
-    /* Hide streamlit chrome */
+    /* Hide Streamlit chrome */
     #MainMenu, footer, header {{ visibility: hidden; }}
-    .block-container {{
-        padding-top: 2rem !important;
-        padding-bottom: 2rem !important;
-        max-width: 620px !important;
+
+    /* Force full landscape width */
+    .block-container,
+    div[data-testid="stAppViewContainer"] > section > div,
+    div[data-testid="block-container"] {{
+        max-width: 98vw !important;
+        width: 98vw !important;
+        padding-left: 2vw !important;
+        padding-right: 2vw !important;
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
     }}
 
     /* Header bar */
@@ -43,11 +50,11 @@ st.markdown(f"""
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 18px;
+        margin-bottom: 12px;
         box-shadow: 0 4px 16px rgba(0,0,0,0.12);
     }}
     .cts-contact {{
-        font-size: 11px;
+        font-size: 12px;
         color: #9aabb8;
         text-align: right;
         line-height: 1.8;
@@ -72,9 +79,9 @@ st.markdown(f"""
     .cts-card {{
         background: white;
         border-radius: 24px;
-        padding: 32px 28px 28px;
+        padding: 20px 32px 18px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.18);
-        margin-bottom: 8px;
+        margin-bottom: 10px;
     }}
     .cts-step-badge {{
         font-size: 11px;
@@ -85,28 +92,31 @@ st.markdown(f"""
         margin-bottom: 8px;
     }}
     .cts-heading {{
-        font-size: 26px;
+        font-size: 30px;
         font-weight: bold;
         color: #2d3e50;
-        margin-bottom: 4px;
+        margin-bottom: 2px;
     }}
     .cts-subheading {{
-        font-size: 13px;
+        font-size: 15px;
         color: #9aabb8;
-        margin-bottom: 24px;
+        margin-bottom: 14px;
     }}
 
     /* Welcome card */
     .cts-welcome-card {{
         background: white;
         border-radius: 24px;
-        padding: 40px 32px 36px;
+        padding: 28px 60px 28px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.18);
         text-align: center;
-        margin-bottom: 8px;
+        margin-bottom: 10px;
+        max-width: 780px;
+        margin-left: auto;
+        margin-right: auto;
     }}
     .cts-welcome-icon  {{ font-size: 56px; margin-bottom: 14px; }}
-    .cts-welcome-title {{ font-size: 34px; font-weight: bold; color: #F47C5A; margin-bottom: 16px; }}
+    .cts-welcome-title {{ font-size: 40px; font-weight: bold; color: #F47C5A; margin-bottom: 16px; }}
     .cts-welcome-text  {{ font-size: 16px; color: #4a6070; line-height: 1.75; margin-bottom: 12px; }}
     .cts-welcome-es    {{ font-size: 15px; color: #8aaabb; line-height: 1.75; font-style: italic; margin-bottom: 32px; }}
     .cts-welcome-divider {{ border: none; border-top: 1px solid #eef2f6; margin: 0 0 28px; }}
@@ -127,15 +137,18 @@ st.markdown(f"""
     .cts-success {{
         background: white;
         border-radius: 24px;
-        padding: 40px 28px 36px;
+        padding: 28px 60px 28px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.18);
         text-align: center;
+        max-width: 780px;
+        margin-left: auto;
+        margin-right: auto;
     }}
 
     /* Override Streamlit input sizing for kiosk */
     .stTextInput input {{
-        font-size: 20px !important;
-        padding: 14px 18px !important;
+        font-size: 24px !important;
+        padding: 16px 22px !important;
         border-radius: 12px !important;
         border: 2px solid #c0d0dc !important;
         background: #f7fbfd !important;
@@ -153,7 +166,7 @@ st.markdown(f"""
     .stTextInput label p,
     div[data-testid="stTextInput"] label,
     div[data-testid="stTextInput"] label p {{
-        font-size: 15px !important;
+        font-size: 17px !important;
         font-weight: 700 !important;
         color: #1a2a36 !important;
         opacity: 1 !important;
@@ -162,10 +175,11 @@ st.markdown(f"""
     /* Buttons */
     .stButton > button {{
         border-radius: 12px !important;
-        font-size: 17px !important;
+        font-size: 20px !important;
         font-weight: bold !important;
-        padding: 14px 20px !important;
+        padding: 16px 24px !important;
         border: none !important;
+        min-height: 60px !important;
     }}
     .stButton > button[kind="primary"] {{
         background: #F47C5A !important;
