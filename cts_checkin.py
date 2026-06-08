@@ -137,17 +137,26 @@ st.markdown(f"""
         font-size: 20px !important;
         padding: 14px 18px !important;
         border-radius: 12px !important;
-        border: 2px solid #e0eaf0 !important;
+        border: 2px solid #c0d0dc !important;
         background: #f7fbfd !important;
+        color: #1a2a36 !important;
     }}
     .stTextInput input:focus {{
         border-color: #6BBDD4 !important;
         background: white !important;
+        color: #1a2a36 !important;
     }}
-    .stTextInput label {{
-        font-size: 13px !important;
+    .stTextInput input::placeholder {{
+        color: #a0b4c0 !important;
+    }}
+    .stTextInput label,
+    .stTextInput label p,
+    div[data-testid="stTextInput"] label,
+    div[data-testid="stTextInput"] label p {{
+        font-size: 15px !important;
         font-weight: 700 !important;
-        color: #5a6a7a !important;
+        color: #1a2a36 !important;
+        opacity: 1 !important;
     }}
 
     /* Buttons */
