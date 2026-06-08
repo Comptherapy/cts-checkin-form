@@ -414,43 +414,21 @@ elif st.session_state.step == "step2":
     </div>
     """, unsafe_allow_html=True)
 
-    # Auto-format DOB via JS component
-    st.components.v1.html("""
-    <style>
-      #dob-input {
-        width: 100%;
-        font-size: 24px;
-        padding: 16px 20px;
-        border: 2px solid #e0eaf0;
-        border-radius: 12px;
-        background: #f7fbfd;
-        color: #2d3e50;
-        outline: none;
-        box-sizing: border-box;
-        font-family: Arial, sans-serif;
-      }
-      #dob-input:focus { border-color: #6BBDD4; background: white; }
-      label.dob-label {
-        font-size: 13px; font-weight: 700; color: #5a6a7a;
-        display: block; margin-bottom: 8px; font-family: Arial, sans-serif;
-      }
-    </style>
-    <label class="dob-label">Date of Birth / Fecha de Nacimiento * (MM/DD/YYYY)</label>
-    <input id="dob-input" type="text" maxlength="10" placeholder="MM/DD/YYYY" autocomplete="off">
-    <script>
-      const inp = document.getElementById('dob-input');
-      inp.addEventListener('input', function() {
-        let v = this.value.replace(/\\D/g, '').substring(0, 8);
-        if (v.length >= 5)      v = v.substring(0,2) + '/' + v.substring(2,4) + '/' + v.substring(4);
-        else if (v.length >= 3) v = v.substring(0,2) + '/' + v.substring(2);
-        this.value = v;
-        window.parent.postMessage({type:'streamlit:setComponentValue', value: v}, '*');
-      });
-    </script>
-    """, height=100)
+    dob_raw = st.text_input(
+        "Date of Birth / Fecha de Nacimiento * (MM/DD/YYYY)",
+        placeholder="MM/DD/YYYY",
+        key=f"dob_{st.session_state.form_key}",
+        max_chars=10)
 
-    dob = st.text_input("Date of Birth (hidden sync)", key=f"dob_{st.session_state.form_key}",
-                         label_visibility="collapsed")
+    # Auto-insert slashes as they type
+    digits = "".join(c for c in dob_raw if c.isdigit())[:8]
+    if len(digits) >= 5:
+        dob = digits[:2] + "/" + digits[2:4] + "/" + digits[4:]
+    elif len(digits) >= 3:
+        dob = digits[:2] + "/" + digits[2:]
+    else:
+        dob = dob_raw
+
 
     st.markdown("<br>", unsafe_allow_html=True)
     col_back, col_next = st.columns([1, 2])
