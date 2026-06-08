@@ -305,15 +305,15 @@ def reset():
     st.session_state.step = "welcome"
     st.session_state.submitted = False
     st.session_state.form_key += 1
-    for k in ["saved_first", "saved_last", "saved_dob"]:
+    for k in ["saved_first", "saved_last"]:
         st.session_state.pop(k, None)
     st.rerun()
 
 # ── Progress bar renderer ──────────────────────────────────────────────────────
 def render_progress(active_step):
-    """active_step: 1, 2, or 3"""
+    """active_step: 1 or 2"""
     bars = []
-    for i in range(1, 4):
+    for i in range(1, 3):
         if i < active_step:
             bars.append('<div class="cts-bar cts-bar-done"></div>')
         elif i == active_step:
@@ -373,7 +373,7 @@ elif st.session_state.step == "step1":
     render_progress(1)
     st.markdown("""
     <div class="cts-card">
-        <div class="cts-step-badge">Step 1 of 3</div>
+        <div class="cts-step-badge">Step 1 of 2</div>
         <div class="cts-heading">What's your child's name?</div>
         <div class="cts-subheading">¿Cuál es el nombre de su hijo/a?</div>
     </div>
@@ -398,49 +398,6 @@ elif st.session_state.step == "step1":
             else:
                 st.session_state["saved_first"] = first.strip()
                 st.session_state["saved_last"] = last.strip()
-                st.session_state.step = "step2"
-                st.rerun()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 — Date of Birth
-# ══════════════════════════════════════════════════════════════════════════════
-elif st.session_state.step == "step2":
-    render_progress(2)
-    st.markdown("""
-    <div class="cts-card">
-        <div class="cts-step-badge">Step 2 of 3</div>
-        <div class="cts-heading">Date of birth?</div>
-        <div class="cts-subheading">¿Fecha de nacimiento de su hijo/a?</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    dob_raw = st.text_input(
-        "Date of Birth / Fecha de Nacimiento * (MM/DD/YYYY)",
-        placeholder="MM/DD/YYYY",
-        key=f"dob_{st.session_state.form_key}",
-        max_chars=10)
-
-    # Auto-insert slashes as they type
-    digits = "".join(c for c in dob_raw if c.isdigit())[:8]
-    if len(digits) >= 5:
-        dob = digits[:2] + "/" + digits[2:4] + "/" + digits[4:]
-    elif len(digits) >= 3:
-        dob = digits[:2] + "/" + digits[2:]
-    else:
-        dob = dob_raw
-
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    col_back, col_next = st.columns([1, 2])
-    with col_back:
-        if st.button("← Back", use_container_width=True):
-            st.session_state.step = "step1"
-            st.rerun()
-    with col_next:
-        if st.button("Next →", use_container_width=True, type="primary"):
-            if not dob.strip():
-                st.error("Please enter date of birth.")
-            else:
                 st.session_state.step = "step3"
                 st.rerun()
 
@@ -448,10 +405,10 @@ elif st.session_state.step == "step2":
 # STEP 3 — Parent Name + Signature
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.step == "step3":
-    render_progress(3)
+    render_progress(2)
     st.markdown("""
     <div class="cts-card">
-        <div class="cts-step-badge">Step 3 of 3</div>
+        <div class="cts-step-badge">Step 2 of 2</div>
         <div class="cts-heading">Parent or guardian</div>
         <div class="cts-subheading">Nombre del padre, madre o tutor</div>
     </div>
@@ -487,20 +444,18 @@ elif st.session_state.step == "step3":
     col_back, col_submit = st.columns([1, 2])
     with col_back:
         if st.button("← Back", use_container_width=True):
-            st.session_state.step = "step2"
+            st.session_state.step = "step1"
             st.rerun()
     with col_submit:
         if st.button("✅ Submit Check-In / Enviar Registro", use_container_width=True, type="primary"):
             # Pull saved values from state
             first  = st.session_state.get("saved_first", "").strip()
             last   = st.session_state.get("saved_last", "").strip()
-            dob    = st.session_state.get("saved_dob", "").strip()
 
             errors = []
             if not parent.strip(): errors.append("Parent/Guardian Name")
             if not first:          errors.append("First Name (go back to Step 1)")
             if not last:           errors.append("Last Name (go back to Step 1)")
-            if not dob:            errors.append("Date of Birth (go back to Step 2)")
 
             if errors:
                 st.error(f"Please fill in: {', '.join(errors)}")
@@ -515,7 +470,7 @@ elif st.session_state.step == "step3":
                 filename = f"{last}_{first}_{datetime.now().strftime('%H%M%S')}.pdf"
 
                 with st.spinner("Saving your check-in..."):
-                    pdf_bytes = build_pdf(first, last, dob, parent.strip(), sig_image, checkin_time)
+                    pdf_bytes = build_pdf(first, last, "", parent.strip(), sig_image, checkin_time)
                     save_pdf_to_dropbox(pdf_bytes, filename)
                     fire_zapier(first, last)
 
