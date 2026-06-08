@@ -252,16 +252,15 @@ else:
 
     col1, col2 = st.columns(2)
     with col1:
-        first = st.text_input("First Name / Nombre *")
+        first = st.text_input("First Name / Nombre *", key=f"first_{st.session_state.form_key}")
     with col2:
-        last  = st.text_input("Last Name / Apellido *")
+        last  = st.text_input("Last Name / Apellido *", key=f"last_{st.session_state.form_key}")
 
     col3, col4 = st.columns(2)
     with col3:
-        dob    = st.text_input("Date of Birth / Fecha de Nacimiento * (MM/DD/YYYY)")
+        dob    = st.text_input("Date of Birth / Fecha de Nacimiento * (MM/DD/YYYY)", key=f"dob_{st.session_state.form_key}")
     with col4:
-        parent = st.text_input("Parent/Guardian Name / Nombre del Padre o Tutor *")
-
+        parent = st.text_input("Parent/Guardian Name / Nombre del Padre o Tutor *", key=f"parent_{st.session_state.form_key}")
     st.markdown("""
     <div class="attest-box">
         <b>e-Signature / Firma Electrónica</b><br><br>
