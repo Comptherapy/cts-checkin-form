@@ -104,9 +104,6 @@ function clearSig() {
   document.getElementById('sigStatus').textContent = 'Sign above / Firme arriba';
   document.getElementById('sigStatus').style.color = '#888';
 }
-function getSigData() {
-  return document.getElementById('sigData').value;
-}
 </script>
 """
 
@@ -124,8 +121,6 @@ def save_pdf_to_dropbox(pdf_bytes, filename):
         today = datetime.now().strftime("%Y-%m-%d")
         path = f"/Apps/CTS Schedule Sync/Check-In Records/{today}/{filename}"
         dbx.files_upload(pdf_bytes, path, mode=_dbx.files.WriteMode.overwrite)
-
-        # Also append to daily log CSV
         log_path = f"/Apps/CTS Schedule Sync/Check-In Records/{today}/daily_log.csv"
         log_line = f'{datetime.now().strftime("%H:%M:%S")},{filename}\n'
         try:
@@ -153,7 +148,6 @@ def build_pdf(first, last, dob, parent, sig_b64, checkin_time):
     styles = getSampleStyleSheet()
     story = []
 
-    # Header
     header_style = ParagraphStyle('header', fontSize=16, textColor=colors.HexColor('#2F5496'), spaceAfter=4)
     sub_style    = ParagraphStyle('sub',    fontSize=10, textColor=colors.grey, spaceAfter=12)
     story.append(Paragraph("Comprehensive Therapy Services", header_style))
@@ -161,7 +155,6 @@ def build_pdf(first, last, dob, parent, sig_b64, checkin_time):
     story.append(Paragraph(f"<b>Patient Check-In Record</b> &nbsp;&nbsp; {checkin_time}", styles['Normal']))
     story.append(Spacer(1, 0.15*inch))
 
-    # Patient info table
     data = [
         ["Patient First Name / Nombre:", first,  "Patient Last Name / Apellido:", last],
         ["Date of Birth / Fecha de Nacimiento:", dob, "Parent/Guardian / Padre o Tutor:", parent],
@@ -179,10 +172,9 @@ def build_pdf(first, last, dob, parent, sig_b64, checkin_time):
     story.append(t)
     story.append(Spacer(1, 0.15*inch))
 
-    # Attestation
     attest_en = ("By signing below, I confirm that my child is present today for their "
                  "scheduled therapy appointment at Comprehensive Therapy Services.")
-    attest_es = ("Al firmar a continuación, confirmo que mi hijo/a está presente hoy para su "
+    attest_es = ("Al firmar a continuacion, confirmo que mi hijo/a esta presente hoy para su "
                  "cita de terapia programada en Comprehensive Therapy Services.")
     box_style = ParagraphStyle('box', fontSize=9, leftIndent=8, rightIndent=8,
                                 borderPadding=8, backColor=colors.HexColor('#fff8e1'),
@@ -190,7 +182,6 @@ def build_pdf(first, last, dob, parent, sig_b64, checkin_time):
                                 borderRadius=4, spaceAfter=10)
     story.append(Paragraph(f"{attest_en}<br/><br/><i>{attest_es}</i>", box_style))
 
-    # Signature
     if sig_b64 and sig_b64.startswith("data:image"):
         img_data = base64.b64decode(sig_b64.split(",")[1])
         img_buf  = io.BytesIO(img_data)
@@ -229,14 +220,15 @@ if st.session_state.submitted:
         <p style="font-size:16px;color:#555;">Please have a seat — your therapist will be right with you.</p>
         <hr style="margin:16px 0;border-color:#c8e6c9;">
         <h2 style="color:#2e7d32;margin:6px 0;">¡Registro Completado!</h2>
-        <p style="font-size:16px;color:#555;">Por favor tome asiento — su terapeuta estará con usted pronto.</p>
+        <p style="font-size:16px;color:#555;">Por favor tome asiento — su terapeuta estara con usted pronto.</p>
     </div>
     """, unsafe_allow_html=True)
     if st.button("Next Patient / Siguiente Paciente →", use_container_width=True):
         st.session_state.submitted = False
         st.session_state.form_key += 1
         st.rerun()
-    import time; time.sleep(10)
+    import time
+    time.sleep(10)
     st.session_state.submitted = False
     st.session_state.form_key += 1
     st.rerun()
@@ -246,7 +238,7 @@ else:
     st.markdown("""
     <div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:12px 16px;border-radius:6px;margin-bottom:16px;font-size:14px;">
         <b>Welcome! Please complete all fields below and sign at the bottom to complete your check-in.</b><br>
-        <i>¡Bienvenido! Por favor complete todos los campos a continuación y firme al final para completar su registro.</i>
+        <i>¡Bienvenido! Por favor complete todos los campos a continuacion y firme al final para completar su registro.</i>
     </div>
     """, unsafe_allow_html=True)
 
@@ -261,24 +253,22 @@ else:
         dob    = st.text_input("Date of Birth / Fecha de Nacimiento * (MM/DD/YYYY)", key=f"dob_{st.session_state.form_key}")
     with col4:
         parent = st.text_input("Parent/Guardian Name / Nombre del Padre o Tutor *", key=f"parent_{st.session_state.form_key}")
+
     st.markdown("""
     <div class="attest-box">
-        <b>e-Signature / Firma Electrónica</b><br><br>
+        <b>e-Signature / Firma Electronica</b><br><br>
         "By signing below, I confirm that my child is present today for their scheduled therapy appointment at Comprehensive Therapy Services."<br><br>
-        <i>"Al firmar a continuación, confirmo que mi hijo/a está presente hoy para su cita de terapia programada en Comprehensive Therapy Services."</i>
+        <i>"Al firmar a continuacion, confirmo que mi hijo/a esta presente hoy para su cita de terapia programada en Comprehensive Therapy Services."</i>
     </div>
     """, unsafe_allow_html=True)
 
-    # Signature pad
     components.html(SIGNATURE_HTML, height=220)
 
-    sig_input = st.text_input("Signature data (auto-filled)", key="sig_capture",
+    sig_input = st.text_input("Signature data (auto-filled)", key=f"sig_capture_{st.session_state.form_key}",
                                label_visibility="collapsed",
                                placeholder="Signature will appear here after signing above")
 
-    st.caption("👆 Draw your signature in the box above, then paste the signature data if needed. "
-               "On iPad, use your finger to sign.")
-
+    st.caption("On iPad, use your finger to sign in the box above.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     if st.button("✅  Submit Check-In / Enviar Registro", use_container_width=True, type="primary"):
@@ -300,13 +290,8 @@ else:
                 ok, err = save_pdf_to_dropbox(pdf_bytes, filename)
                 fire_zapier(first.strip(), last.strip())
 
-            if ok:
-                st.session_state.submitted = True
-                st.rerun()
-            else:
-                st.warning(f"Check-in recorded but could not save to Dropbox: {err}")
-                st.session_state.submitted = True
-                st.rerun()
+            st.session_state.submitted = True
+            st.rerun()
 
 st.markdown("---")
 st.caption("CTS Patient Check-In · Comprehensive Therapy Services · comptherapy.com")
