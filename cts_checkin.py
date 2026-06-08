@@ -234,12 +234,12 @@ if st.session_state.submitted:
     """, unsafe_allow_html=True)
     if st.button("Next Patient / Siguiente Paciente →", use_container_width=True):
         st.session_state.submitted = False
-st.session_state.form_key += 1
-st.rerun()
+        st.session_state.form_key += 1
+        st.rerun()
     import time; time.sleep(10)
     st.session_state.submitted = False
-st.session_state.form_key += 1
-st.rerun()
+    st.session_state.form_key += 1
+    st.rerun()
 
 # ── Form ───────────────────────────────────────────────────────────────────────
 else:
