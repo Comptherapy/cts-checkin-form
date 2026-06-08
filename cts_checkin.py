@@ -230,7 +230,10 @@ if st.session_state.submitted:
         <p style="font-size:16px;color:#555;">Por favor tome asiento — su terapeuta estará con usted pronto.</p>
     </div>
     """, unsafe_allow_html=True)
-    import time; time.sleep(8)
+    if st.button("Next Patient / Siguiente Paciente →", use_container_width=True):
+        st.session_state.submitted = False
+        st.rerun()
+    import time; time.sleep(10)
     st.session_state.submitted = False
     st.rerun()
 
