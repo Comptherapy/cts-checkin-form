@@ -311,15 +311,16 @@ def fire_zapier(first, last):
         pass
 
 # ── Session state ──────────────────────────────────────────────────────────────
-for key, default in [("step", "welcome"), ("submitted", False), ("form_key", 0)]:
+for key, default in [("step", "welcome"), ("submitted", False), ("form_key", 0), ("submitting", False)]:
     if key not in st.session_state:
         st.session_state[key] = default
 
 def reset():
     st.session_state.step = "welcome"
     st.session_state.submitted = False
+    st.session_state.submitting = False
     st.session_state.form_key += 1
-    for k in ["saved_first", "saved_last", "saved_parent"]:
+    for k in ["saved_first", "saved_last", "saved_parent", "saved_sig"]:
         st.session_state.pop(k, None)
     st.rerun()
 
@@ -337,9 +338,36 @@ def render_progress(active_step):
     st.markdown(f'<div class="cts-progress">{"".join(bars)}</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# PROCESS SUBMISSION (triggered after button lock to prevent double-submit)
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.submitting and not st.session_state.submitted:
+    first  = st.session_state.get("saved_first", "").strip()
+    last   = st.session_state.get("saved_last", "").strip()
+    parent = st.session_state.get("saved_parent", "").strip()
+
+    checkin_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    filename = f"{last}_{first}_{datetime.now().strftime('%H%M%S')}.pdf"
+
+    # Restore signature from session state
+    sig_raw = st.session_state.get("saved_sig", None)
+    sig_image = None
+    if sig_raw is not None:
+        import numpy as np
+        sig_image = np.array(sig_raw)
+
+    with st.spinner("Saving your check-in... / Guardando su registro..."):
+        pdf_bytes = build_pdf(first, last, "", parent, sig_image, checkin_time)
+        save_pdf_to_dropbox(pdf_bytes, filename)
+        fire_zapier(first, last)
+
+    st.session_state.submitting = False
+    st.session_state.submitted = True
+    st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SUCCESS SCREEN
 # ══════════════════════════════════════════════════════════════════════════════
-if st.session_state.submitted:
+elif st.session_state.submitted:
     st.markdown("""
     <div class="cts-success">
         <div style="font-size:64px;margin-bottom:12px;">✅</div>
@@ -494,7 +522,11 @@ elif st.session_state.step == "step3":
             st.session_state.step = "step2"
             st.rerun()
     with col_submit:
-        if st.button("✅ Submit Check-In / Enviar Registro", use_container_width=True, type="primary"):
+        # Show disabled spinner if already submitting to prevent double-tap
+        if st.session_state.submitting:
+            st.button("⏳ Saving... / Guardando...", use_container_width=True,
+                      type="primary", disabled=True)
+        elif st.button("✅ Submit Check-In / Enviar Registro", use_container_width=True, type="primary"):
             first  = st.session_state.get("saved_first", "").strip()
             last   = st.session_state.get("saved_last", "").strip()
             parent = st.session_state.get("saved_parent", "").strip()
@@ -507,21 +539,15 @@ elif st.session_state.step == "step3":
             if errors:
                 st.error(f"Please fill in: {', '.join(errors)}")
             else:
+                # Save signature to session state before rerun
                 sig_image = None
                 if canvas_result.image_data is not None:
                     arr = canvas_result.image_data
                     if arr[:,:,3].max() > 0:
-                        sig_image = arr
-
-                checkin_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                filename = f"{last}_{first}_{datetime.now().strftime('%H%M%S')}.pdf"
-
-                with st.spinner("Saving your check-in..."):
-                    pdf_bytes = build_pdf(first, last, "", parent, sig_image, checkin_time)
-                    save_pdf_to_dropbox(pdf_bytes, filename)
-                    fire_zapier(first, last)
-
-                st.session_state.submitted = True
+                        sig_image = arr.tolist()  # convert for session state storage
+                st.session_state["saved_sig"] = sig_image
+                # Lock the button immediately to prevent double-submit
+                st.session_state.submitting = True
                 st.rerun()
 
 st.markdown("---")
