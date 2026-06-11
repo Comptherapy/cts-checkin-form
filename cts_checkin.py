@@ -496,13 +496,24 @@ if st.session_state.submitting and not st.session_state.submitted:
         # ── Send SMS via RingCentral directly (no Zapier) ──
         schedule_df  = st.session_state.get("schedule_df",  None)
         directory_df = st.session_state.get("directory_df", None)
-        if schedule_df is not None and directory_df is not None:
-            therapists, matched, score = find_therapists(schedule_df, directory_df, first, last)
-            if therapists:
+        sms_log = []
+        if schedule_df is None or directory_df is None:
+            sms_log.append("⚠️ Files not in session state — SMS skipped")
+        else:
+            therapists, matched_name, score = find_therapists(schedule_df, directory_df, first, last)
+            sms_log.append(f"🔍 Best match: '{matched_name}' (score: {score:.2f})")
+            if not therapists:
+                sms_log.append(f"⚠️ No therapist found above threshold")
+            else:
                 token = get_rc_token()
-                if token:
+                if not token:
+                    sms_log.append("⚠️ RingCentral token failed")
+                else:
                     for therapist_name, phone, message in therapists:
-                        send_rc_sms(token, phone, message)
+                        ok = send_rc_sms(token, phone, message)
+                        status = "✅ sent" if ok else "❌ failed"
+                        sms_log.append(f"{status} → {therapist_name} ({phone}): {message}")
+        st.session_state["sms_log"] = sms_log
 
     st.session_state.submitting = False
     st.session_state.submitted = True
@@ -522,6 +533,13 @@ elif st.session_state.submitted:
         <p style="font-size:16px;color:#555;">Por favor tome asiento — su terapeuta estará con usted pronto.</p>
     </div>
     """, unsafe_allow_html=True)
+
+    # ── Debug log (temporary — remove after testing) ──
+    sms_log = st.session_state.get("sms_log", [])
+    if sms_log:
+        with st.expander("📋 SMS Debug Log (staff only)"):
+            for line in sms_log:
+                st.write(line)
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Next Patient / Siguiente Paciente →", use_container_width=True, type="primary"):
