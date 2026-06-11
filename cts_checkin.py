@@ -2,8 +2,6 @@ import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 from datetime import datetime
 import base64, json, io, os, requests
-import pandas as pd
-import re
 from pathlib import Path
 from PIL import Image
 import numpy as np
@@ -30,6 +28,11 @@ st.markdown(f"""
     }}
     /* Hide Streamlit chrome */
     #MainMenu, footer, header {{ visibility: hidden; }}
+    [data-testid="manage-app-button"],
+    [data-testid="stToolbar"],
+    .stDeployButton,
+    iframe[title="streamlit_app"] {{ display: none !important; }}
+    div[data-testid="stStatusWidget"] {{ display: none !important; }}
 
     /* Force full landscape width */
     .block-container,
@@ -249,108 +252,6 @@ def send_rc_sms(token, to_number, message):
     )
     return resp.ok
 
-# ── Fuzzy name matching ────────────────────────────────────────────────────────
-def normalize_name(s):
-    """Lowercase, strip spaces and hyphens for comparison."""
-    return s.lower().replace(" ", "").replace("-", "")
-
-def levenshtein(a, b):
-    m, n = len(a), len(b)
-    dp = list(range(n + 1))
-    for i in range(1, m + 1):
-        prev = dp[0]
-        dp[0] = i
-        for j in range(1, n + 1):
-            temp = dp[j]
-            dp[j] = prev if a[i-1] == b[j-1] else 1 + min(prev, dp[j], dp[j-1])
-            prev = temp
-    return dp[n]
-
-def name_similarity(csv_name, typed_first, typed_last):
-    """Score how well a CSV patient name matches what the parent typed."""
-    # Strip '-Open' suffix from schedule names
-    clean = csv_name.replace("-Open", "").strip()
-    typed_full = normalize_name(typed_first + typed_last)
-    csv_norm   = normalize_name(clean)
-    # Full name similarity
-    dist_full  = levenshtein(csv_norm, typed_full)
-    full_score = 1 - dist_full / max(len(csv_norm), len(typed_full), 1)
-    # Last name similarity
-    parts      = clean.split()
-    csv_last   = normalize_name(parts[-1]) if parts else ""
-    typed_last_n = normalize_name(typed_last)
-    dist_last  = levenshtein(csv_last, typed_last_n)
-    last_score = 1 - dist_last / max(len(csv_last), len(typed_last_n), 1)
-    # First name similarity
-    csv_first  = normalize_name(parts[0]) if parts else ""
-    typed_first_n = normalize_name(typed_first)
-    dist_first = levenshtein(csv_first, typed_first_n)
-    first_score = 1 - dist_first / max(len(csv_first), len(typed_first_n), 1)
-    return (last_score * 0.5) + (full_score * 0.35) + (first_score * 0.15)
-
-def find_therapists(schedule_df, directory_df, first, last):
-    """
-    Match patient to therapist(s) and return list of (therapist_name, phone, message).
-    Returns empty list if no match found.
-    """
-    import re
-    THRESHOLD = 0.65
-
-    # Score all rows
-    best_score = 0
-    best_name  = ""
-    for _, row in schedule_df.iterrows():
-        score = name_similarity(str(row.get("PatientName2", "")), first, last)
-        if score > best_score:
-            best_score = score
-            best_name  = str(row.get("PatientName2", ""))
-
-    if best_score < THRESHOLD:
-        return [], best_name, best_score
-
-    # Get all rows matching that patient name (multiple therapists)
-    matched_rows = schedule_df[schedule_df["PatientName2"] == best_name]
-
-    # Build directory lookup: strip credentials from therapist name
-    def strip_creds(name):
-        # Remove ", PT, DPT Lic#..." style credentials
-        return re.split(r",\s*(PT|OT|SLP|OTR|DPT|OTD|CCC)", name)[0].strip()
-
-    dir_lookup = {}
-    for _, row in directory_df.iterrows():
-        tname = str(row.get("Therapist Name", "")).strip()
-        phone = str(row.get("Phone Number", "")).strip()
-        dir_lookup[normalize_name(tname)] = (tname, phone)
-
-    results = []
-    seen_therapists = set()
-    for _, row in matched_rows.iterrows():
-        full_therapist = str(row.get("TherapistDisplayName", ""))
-        clean_therapist = strip_creds(full_therapist)
-        appt_time = str(row.get("AppointmentStartTime2", ""))
-
-        if normalize_name(clean_therapist) in seen_therapists:
-            continue
-        seen_therapists.add(normalize_name(clean_therapist))
-
-        # Look up phone from directory using fuzzy match
-        phone = None
-        best_t_score = 0
-        for dir_key, (dir_name, dir_phone) in dir_lookup.items():
-            score = levenshtein(normalize_name(clean_therapist), dir_key)
-            sim = 1 - score / max(len(normalize_name(clean_therapist)), len(dir_key), 1)
-            if sim > best_t_score:
-                best_t_score = sim
-                phone = dir_phone
-
-        if phone:
-            patient_display = best_name.replace("-Open", "").strip()
-            initials = f"{first[0].upper()}.{last[0].upper()}." if first and last else patient_display
-            message = f"Your {appt_time} patient {initials} has checked in and is waiting."
-            results.append((clean_therapist, phone, message))
-
-    return results, best_name, best_score
-
 # ── Dropbox config ─────────────────────────────────────────────────────────────
 
 def save_pdf_to_dropbox(pdf_bytes, filename):
@@ -450,7 +351,7 @@ def build_pdf(first, last, dob, parent, sig_image, checkin_time):
 
 
 # ── Session state ──────────────────────────────────────────────────────────────
-for key, default in [("step", "welcome"), ("submitted", False), ("form_key", 0), ("submitting", False), ("schedule_df", None), ("directory_df", None), ("files_loaded", False)]:
+for key, default in [("step", "welcome"), ("submitted", False), ("form_key", 0), ("submitting", False)]:
     if key not in st.session_state:
         st.session_state[key] = default
 
@@ -498,27 +399,63 @@ if st.session_state.submitting and not st.session_state.submitted:
         pdf_bytes = build_pdf(first, last, "", parent, sig_image, checkin_time)
         save_pdf_to_dropbox(pdf_bytes, filename)
 
-        # ── Send SMS via RingCentral directly (no Zapier) ──
-        schedule_df  = st.session_state.get("schedule_df",  None)
-        directory_df = st.session_state.get("directory_df", None)
-        sms_log = []
-        if schedule_df is None or directory_df is None:
-            sms_log.append("⚠️ Files not in session state — SMS skipped")
-        else:
-            therapists, matched_name, score = find_therapists(schedule_df, directory_df, first, last)
-            sms_log.append(f"🔍 Best match: '{matched_name}' (score: {score:.2f})")
-            if not therapists:
-                sms_log.append(f"⚠️ No therapist found above threshold")
-            else:
+        # ── Send SMS via RingCentral — read schedule from Dropbox ──
+        try:
+            import dropbox as _dbx
+            import csv, io as _io
+            dbx = _dbx.Dropbox(
+                oauth2_refresh_token=st.secrets["DROPBOX_REFRESH_TOKEN"],
+                app_key=st.secrets["DROPBOX_APP_KEY"],
+                app_secret=st.secrets["DROPBOX_APP_SECRET"]
+            )
+            _, res = dbx.files_download("/Apps/CTS Schedule Sync/daily_schedule.csv")
+            csv_text = res.content.decode("utf-8")
+            reader = list(csv.DictReader(_io.StringIO(csv_text)))
+
+            # Fuzzy match patient name
+            def _normalize(s):
+                return s.lower().replace(" ", "").replace("-", "")
+
+            def _levenshtein(a, b):
+                m, n = len(a), len(b)
+                dp = list(range(n + 1))
+                for i in range(1, m + 1):
+                    prev, dp[0] = dp[0], i
+                    for j in range(1, n + 1):
+                        temp = dp[j]
+                        dp[j] = prev if a[i-1] == b[j-1] else 1 + min(prev, dp[j], dp[j-1])
+                        prev = temp
+                return dp[n]
+
+            def _score(csv_name, f, l):
+                typed = _normalize(f + l)
+                norm  = _normalize(csv_name)
+                if not norm: return 0
+                dist  = _levenshtein(norm, typed)
+                full  = 1 - dist / max(len(norm), len(typed), 1)
+                parts = csv_name.split()
+                clast = _normalize(parts[-1]) if parts else ""
+                tlast = _normalize(l)
+                ld    = _levenshtein(clast, tlast)
+                last  = 1 - ld / max(len(clast), len(tlast), 1)
+                return last * 0.6 + full * 0.4
+
+            best_score, best_row = 0, None
+            for row in reader:
+                s = _score(row.get("Patient Name", ""), first, last)
+                if s > best_score:
+                    best_score, best_row = s, row
+
+            if best_row and best_score >= 0.65:
                 token = get_rc_token()
-                if not token:
-                    sms_log.append("⚠️ RingCentral token failed")
-                else:
-                    for therapist_name, phone, message in therapists:
-                        ok = send_rc_sms(token, phone, message)
-                        status = "✅ sent" if ok else "❌ failed"
-                        sms_log.append(f"{status} → {therapist_name} ({phone}): {message}")
-        st.session_state["sms_log"] = sms_log
+                if token:
+                    for i in range(1, 4):
+                        phone   = best_row.get(f"Phone{i}",   "").strip()
+                        message = best_row.get(f"Message{i}", "").strip()
+                        if phone and message:
+                            send_rc_sms(token, phone, message)
+        except Exception:
+            pass  # Silent fail — check-in completes even if SMS fails
 
     st.session_state.submitting = False
     st.session_state.submitted = True
@@ -538,13 +475,6 @@ elif st.session_state.submitted:
         <p style="font-size:16px;color:#555;">Por favor tome asiento — su terapeuta estará con usted pronto.</p>
     </div>
     """, unsafe_allow_html=True)
-
-    # ── Debug log (temporary — remove after testing) ──
-    sms_log = st.session_state.get("sms_log", [])
-    if sms_log:
-        with st.expander("📋 SMS Debug Log (staff only)"):
-            for line in sms_log:
-                st.write(line)
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Next Patient / Siguiente Paciente →", use_container_width=True, type="primary"):
@@ -587,16 +517,7 @@ elif st.session_state.step == "welcome":
                 st.error(f"Error reading files: {e}")
     else:
         # Files loaded — show the patient-facing welcome screen
-        sched_df = st.session_state.schedule_df
-        patient_count = sched_df["PatientName2"].nunique() if sched_df is not None and "PatientName2" in sched_df.columns else "?"
-        st.markdown(f"""
-        <div style="text-align:right;margin-bottom:8px;">
-            <span style="background:rgba(255,255,255,0.25);color:white;font-size:12px;
-                         padding:4px 12px;border-radius:20px;">
-                ✅ Schedule loaded &nbsp;·&nbsp; {patient_count} patients today
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
+
 
         st.markdown("""
         <div class="cts-welcome-card">
@@ -616,13 +537,7 @@ elif st.session_state.step == "welcome":
             st.session_state.step = "step1"
             st.rerun()
 
-        # Small staff reset link at bottom
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("↺ Upload new schedule files", use_container_width=False):
-            st.session_state.files_loaded = False
-            st.session_state.schedule_df  = None
-            st.session_state.directory_df = None
-            st.rerun()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Patient Name
