@@ -657,3 +657,50 @@ elif st.session_state.step == "step3":
 
 st.markdown("---")
 st.caption("CTS Patient Check-In · Comprehensive Therapy Services · comptherapy.com")
+
+# Block Streamlit toolbar buttons with an invisible overlay
+st.components.v1.html("""
+<script>
+// Place an invisible div over the bottom-right Streamlit toolbar
+function blockToolbar() {
+    const blocker = document.createElement('div');
+    blocker.style.cssText = [
+        'position:fixed',
+        'bottom:0',
+        'right:0',
+        'width:120px',
+        'height:60px',
+        'z-index:99999',
+        'background:transparent',
+        'pointer-events:all',
+        'cursor:default'
+    ].join(';');
+    blocker.addEventListener('click', function(e) { e.stopPropagation(); e.preventDefault(); });
+    blocker.addEventListener('touchstart', function(e) { e.stopPropagation(); e.preventDefault(); }, {passive:false});
+    blocker.addEventListener('touchend', function(e) { e.stopPropagation(); e.preventDefault(); }, {passive:false});
+    document.body.appendChild(blocker);
+
+    // Also try to hide the toolbar elements directly
+    const selectors = [
+        '[data-testid="stToolbar"]',
+        '[data-testid="stToolbarActions"]',
+        '[data-testid="manage-app-button"]',
+        '.st-emotion-cache-zq5wmm',
+        'button[kind="header"]',
+    ];
+    selectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => {
+            el.style.display = 'none';
+            el.style.visibility = 'hidden';
+            el.style.pointerEvents = 'none';
+        });
+    });
+}
+
+// Run on load and after a short delay to catch dynamically loaded elements
+blockToolbar();
+setTimeout(blockToolbar, 500);
+setTimeout(blockToolbar, 1500);
+setTimeout(blockToolbar, 3000);
+</script>
+""", height=0)
