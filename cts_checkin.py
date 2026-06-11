@@ -30,9 +30,17 @@ st.markdown(f"""
     #MainMenu, footer, header {{ visibility: hidden; }}
     [data-testid="manage-app-button"],
     [data-testid="stToolbar"],
+    [data-testid="stToolbarActions"],
     .stDeployButton,
-    iframe[title="streamlit_app"] {{ display: none !important; }}
-    div[data-testid="stStatusWidget"] {{ display: none !important; }}
+    [data-testid="baseButton-headerNoPadding"],
+    ._profileContainer_gzau3_53,
+    ._profilePreview_gzau3_63,
+    .viewerBadge_container__r5tak,
+    #stDecoration,
+    div[class*="StatusWidget"],
+    div[data-testid="stStatusWidget"],
+    button[kind="header"],
+    .st-emotion-cache-zq5wmm {{ display: none !important; }}
 
     /* Force full landscape width */
     .block-container,
