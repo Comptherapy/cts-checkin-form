@@ -487,57 +487,23 @@ elif st.session_state.submitted:
 # WELCOME SCREEN
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.step == "welcome":
-    # ── Staff file upload section (shown when files not yet loaded) ──
-    if not st.session_state.files_loaded:
-        st.markdown("""
-        <div class="cts-card" style="max-width:700px;margin:0 auto 20px;">
-            <div class="cts-step-badge">Staff Setup — Upload Daily Files</div>
-            <div class="cts-heading" style="font-size:22px;">Good morning! Upload today's files to begin.</div>
-            <div class="cts-subheading">These are uploaded once each morning before patients arrive.</div>
+    st.markdown("""
+    <div class="cts-welcome-card">
+        <div class="cts-welcome-icon">👋</div>
+        <div class="cts-welcome-title">Welcome!</div>
+        <div class="cts-welcome-text">
+            Please complete all fields below and sign at the bottom to complete your check-in.
         </div>
-        """, unsafe_allow_html=True)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            sched_file = st.file_uploader("📋 Daily Schedule CSV", type=["csv"], key="sched_upload")
-        with col2:
-            dir_file = st.file_uploader("📁 Therapist Directory CSV", type=["csv"], key="dir_upload")
-
-        if sched_file and dir_file:
-            try:
-                sched_df = pd.read_csv(sched_file)
-                dir_df   = pd.read_csv(dir_file)
-                st.session_state.schedule_df  = sched_df
-                st.session_state.directory_df = dir_df
-                st.session_state.files_loaded = True
-                patient_count = sched_df["PatientName2"].nunique() if "PatientName2" in sched_df.columns else len(sched_df)
-                st.success(f"✅ Files loaded! {patient_count} patients on today's schedule.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error reading files: {e}")
-    else:
-        # Files loaded — show the patient-facing welcome screen
-
-
-        st.markdown("""
-        <div class="cts-welcome-card">
-            <div class="cts-welcome-icon">👋</div>
-            <div class="cts-welcome-title">Welcome!</div>
-            <div class="cts-welcome-text">
-                Please complete all fields below and sign at the bottom to complete your check-in.
-            </div>
-            <hr class="cts-welcome-divider">
-            <div class="cts-welcome-es">
-                ¡Bienvenido! Por favor complete todos los campos a continuación y firme al final para completar su registro.
-            </div>
+        <hr class="cts-welcome-divider">
+        <div class="cts-welcome-es">
+            ¡Bienvenido! Por favor complete todos los campos a continuación y firme al final para completar su registro.
         </div>
-        """, unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Tap to Begin →", use_container_width=True, type="primary"):
-            st.session_state.step = "step1"
-            st.rerun()
-
-
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Tap to Begin →", use_container_width=True, type="primary"):
+        st.session_state.step = "step1"
+        st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Patient Name
