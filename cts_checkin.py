@@ -229,7 +229,10 @@ def get_rc_token():
 
 def send_rc_sms(token, to_number, message):
     """Send SMS via RingCentral."""
-    digits = "".join(c for c in str(to_number) if c.isdigit())[-10:]
+    digits = "".join(c for c in str(to_number) if c.isdigit())
+    # If 11 digits starting with 1 (e.g. 12142651819), strip the leading 1
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
     resp = requests.post(
         "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
         headers={"Content-Type": "application/json",
