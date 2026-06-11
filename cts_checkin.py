@@ -2,6 +2,8 @@ import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 from datetime import datetime
 import base64, json, io, os, requests
+import pandas as pd
+import re
 from pathlib import Path
 from PIL import Image
 import numpy as np
@@ -203,8 +205,145 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Zapier & Dropbox config ────────────────────────────────────────────────────
-ZAPIER_WEBHOOK = "https://hooks.zapier.com/hooks/catch/27775252/4btlt88/"
+# ── RingCentral config ────────────────────────────────────────────────────────
+RC_CLIENT_ID     = "4jCbisbV1mddzJRsMA9XOx"
+RC_CLIENT_SECRET = "eQ3QaW05GnccEIG07Ld0caWtzCE9rvSGObkQGV6DGW36"
+RC_JWT_TOKEN     = "eyJraWQiOiI4NzYyZjU5OGQwNTk0NGRiODZiZjVjYTk3ODA0NzYwOCIsInR5cCI6IkpXVCIsImFsZyI6IlJTMjU2In0.eyJhdWQiOiJodHRwczovL3BsYXRmb3JtLnJpbmdjZW50cmFsLmNvbS9yZXN0YXBpL29hdXRoL3Rva2VuIiwic3ViIjoiMTUxMzIwMDM0IiwiaXNzIjoiaHR0cHM6Ly9wbGF0Zm9ybS5yaW5nY2VudHJhbC5jb20iLCJleHAiOjM5MjUxMzYyNzMsImlhdCI6MTc3NzY1MjYyNiwianRpIjoidFdQX19KVFRUOE80Ml8wTkNpdXM0dyJ9.Ew3kNZvr1STczQTF59Nz_HzUv-rm0qynDbUx8kksZ5cnSVrEWQ6RkLNMMpGwHmbjEQkjDmNYWBs91thWMlxHpDsBNt0YBAh5SranJBdOuG9CC_7kHFp9maz6inDWls-Fd4AQaaOYM8EcogAU6IXE3DmApNTezhes0ZEG_xAcQf9DNt_WAFAkxOPsvFTmCcHuvoi4_aC-SAnGioXOgXW95upitjO_QAM-fskzDsEFDgnD9LKhvWCYQFfxKOjJBUeaUK1JxWlywLS08lxc37tDIMcYM7_A8eL7XrRKpk0gG7TFsD8EfrsR7nQvBJEex1H0TCDCO9qIXSWctOzcWHCkvA"
+RC_FROM_NUMBER   = "+12142651819"
+
+def get_rc_token():
+    """Get RingCentral access token via JWT."""
+    import base64 as _b64
+    auth = _b64.b64encode(f"{RC_CLIENT_ID}:{RC_CLIENT_SECRET}".encode()).decode()
+    resp = requests.post(
+        "https://platform.ringcentral.com/restapi/oauth/token",
+        headers={"Content-Type": "application/x-www-form-urlencoded",
+                 "Authorization": f"Basic {auth}"},
+        data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+              "assertion": RC_JWT_TOKEN},
+        timeout=10
+    )
+    if resp.ok:
+        return resp.json().get("access_token")
+    return None
+
+def send_rc_sms(token, to_number, message):
+    """Send SMS via RingCentral."""
+    digits = "".join(c for c in str(to_number) if c.isdigit())[-10:]
+    resp = requests.post(
+        "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {token}"},
+        json={"from": {"phoneNumber": RC_FROM_NUMBER},
+              "to": [{"phoneNumber": f"+1{digits}"}],
+              "text": message},
+        timeout=10
+    )
+    return resp.ok
+
+# ── Fuzzy name matching ────────────────────────────────────────────────────────
+def normalize_name(s):
+    """Lowercase, strip spaces and hyphens for comparison."""
+    return s.lower().replace(" ", "").replace("-", "")
+
+def levenshtein(a, b):
+    m, n = len(a), len(b)
+    dp = list(range(n + 1))
+    for i in range(1, m + 1):
+        prev = dp[0]
+        dp[0] = i
+        for j in range(1, n + 1):
+            temp = dp[j]
+            dp[j] = prev if a[i-1] == b[j-1] else 1 + min(prev, dp[j], dp[j-1])
+            prev = temp
+    return dp[n]
+
+def name_similarity(csv_name, typed_first, typed_last):
+    """Score how well a CSV patient name matches what the parent typed."""
+    # Strip '-Open' suffix from schedule names
+    clean = csv_name.replace("-Open", "").strip()
+    typed_full = normalize_name(typed_first + typed_last)
+    csv_norm   = normalize_name(clean)
+    # Full name similarity
+    dist_full  = levenshtein(csv_norm, typed_full)
+    full_score = 1 - dist_full / max(len(csv_norm), len(typed_full), 1)
+    # Last name similarity
+    parts      = clean.split()
+    csv_last   = normalize_name(parts[-1]) if parts else ""
+    typed_last_n = normalize_name(typed_last)
+    dist_last  = levenshtein(csv_last, typed_last_n)
+    last_score = 1 - dist_last / max(len(csv_last), len(typed_last_n), 1)
+    # First name similarity
+    csv_first  = normalize_name(parts[0]) if parts else ""
+    typed_first_n = normalize_name(typed_first)
+    dist_first = levenshtein(csv_first, typed_first_n)
+    first_score = 1 - dist_first / max(len(csv_first), len(typed_first_n), 1)
+    return (last_score * 0.5) + (full_score * 0.35) + (first_score * 0.15)
+
+def find_therapists(schedule_df, directory_df, first, last):
+    """
+    Match patient to therapist(s) and return list of (therapist_name, phone, message).
+    Returns empty list if no match found.
+    """
+    import re
+    THRESHOLD = 0.65
+
+    # Score all rows
+    best_score = 0
+    best_name  = ""
+    for _, row in schedule_df.iterrows():
+        score = name_similarity(str(row.get("PatientName2", "")), first, last)
+        if score > best_score:
+            best_score = score
+            best_name  = str(row.get("PatientName2", ""))
+
+    if best_score < THRESHOLD:
+        return [], best_name, best_score
+
+    # Get all rows matching that patient name (multiple therapists)
+    matched_rows = schedule_df[schedule_df["PatientName2"] == best_name]
+
+    # Build directory lookup: strip credentials from therapist name
+    def strip_creds(name):
+        # Remove ", PT, DPT Lic#..." style credentials
+        return re.split(r",\s*(PT|OT|SLP|OTR|DPT|OTD|CCC)", name)[0].strip()
+
+    dir_lookup = {}
+    for _, row in directory_df.iterrows():
+        tname = str(row.get("Therapist Name", "")).strip()
+        phone = str(row.get("Phone Number", "")).strip()
+        dir_lookup[normalize_name(tname)] = (tname, phone)
+
+    results = []
+    seen_therapists = set()
+    for _, row in matched_rows.iterrows():
+        full_therapist = str(row.get("TherapistDisplayName", ""))
+        clean_therapist = strip_creds(full_therapist)
+        appt_time = str(row.get("AppointmentStartTime2", ""))
+
+        if normalize_name(clean_therapist) in seen_therapists:
+            continue
+        seen_therapists.add(normalize_name(clean_therapist))
+
+        # Look up phone from directory using fuzzy match
+        phone = None
+        best_t_score = 0
+        for dir_key, (dir_name, dir_phone) in dir_lookup.items():
+            score = levenshtein(normalize_name(clean_therapist), dir_key)
+            sim = 1 - score / max(len(normalize_name(clean_therapist)), len(dir_key), 1)
+            if sim > best_t_score:
+                best_t_score = sim
+                phone = dir_phone
+
+        if phone:
+            patient_display = best_name.replace("-Open", "").strip()
+            initials = f"{first[0].upper()}.{last[0].upper()}." if first and last else patient_display
+            message = f"Your {appt_time} patient {initials} has checked in and is waiting."
+            results.append((clean_therapist, phone, message))
+
+    return results, best_name, best_score
+
+# ── Dropbox config ─────────────────────────────────────────────────────────────
 
 def save_pdf_to_dropbox(pdf_bytes, filename):
     try:
@@ -300,18 +439,10 @@ def build_pdf(first, last, dob, parent, sig_image, checkin_time):
     doc.build(story)
     return buf.getvalue()
 
-def fire_zapier(first, last):
-    try:
-        payload = json.dumps({"IntakeId": f"CTS-{first}-{last}-{datetime.now().strftime('%H%M%S')}",
-                               "Type": "CheckIn",
-                               "ClientName": f"{first} {last}"})
-        requests.post(ZAPIER_WEBHOOK, data=payload,
-                      headers={"Content-Type": "application/json"}, timeout=5)
-    except:
-        pass
+
 
 # ── Session state ──────────────────────────────────────────────────────────────
-for key, default in [("step", "welcome"), ("submitted", False), ("form_key", 0), ("submitting", False)]:
+for key, default in [("step", "welcome"), ("submitted", False), ("form_key", 0), ("submitting", False), ("schedule_df", None), ("directory_df", None), ("files_loaded", False)]:
     if key not in st.session_state:
         st.session_state[key] = default
 
@@ -358,7 +489,17 @@ if st.session_state.submitting and not st.session_state.submitted:
     with st.spinner("Saving your check-in... / Guardando su registro..."):
         pdf_bytes = build_pdf(first, last, "", parent, sig_image, checkin_time)
         save_pdf_to_dropbox(pdf_bytes, filename)
-        fire_zapier(first, last)
+
+        # ── Send SMS via RingCentral directly (no Zapier) ──
+        schedule_df  = st.session_state.get("schedule_df",  None)
+        directory_df = st.session_state.get("directory_df", None)
+        if schedule_df is not None and directory_df is not None:
+            therapists, matched, score = find_therapists(schedule_df, directory_df, first, last)
+            if therapists:
+                token = get_rc_token()
+                if token:
+                    for therapist_name, phone, message in therapists:
+                        send_rc_sms(token, phone, message)
 
     st.session_state.submitting = False
     st.session_state.submitted = True
@@ -390,23 +531,72 @@ elif st.session_state.submitted:
 # WELCOME SCREEN
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.step == "welcome":
-    st.markdown("""
-    <div class="cts-welcome-card">
-        <div class="cts-welcome-icon">👋</div>
-        <div class="cts-welcome-title">Welcome!</div>
-        <div class="cts-welcome-text">
-            Please complete all fields below and sign at the bottom to complete your check-in.
+    # ── Staff file upload section (shown when files not yet loaded) ──
+    if not st.session_state.files_loaded:
+        st.markdown("""
+        <div class="cts-card" style="max-width:700px;margin:0 auto 20px;">
+            <div class="cts-step-badge">Staff Setup — Upload Daily Files</div>
+            <div class="cts-heading" style="font-size:22px;">Good morning! Upload today's files to begin.</div>
+            <div class="cts-subheading">These are uploaded once each morning before patients arrive.</div>
         </div>
-        <hr class="cts-welcome-divider">
-        <div class="cts-welcome-es">
-            ¡Bienvenido! Por favor complete todos los campos a continuación y firme al final para completar su registro.
+        """, unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            sched_file = st.file_uploader("📋 Daily Schedule CSV", type=["csv"], key="sched_upload")
+        with col2:
+            dir_file = st.file_uploader("📁 Therapist Directory CSV", type=["csv"], key="dir_upload")
+
+        if sched_file and dir_file:
+            try:
+                sched_df = pd.read_csv(sched_file)
+                dir_df   = pd.read_csv(dir_file)
+                st.session_state.schedule_df  = sched_df
+                st.session_state.directory_df = dir_df
+                st.session_state.files_loaded = True
+                patient_count = sched_df["PatientName2"].nunique() if "PatientName2" in sched_df.columns else len(sched_df)
+                st.success(f"✅ Files loaded! {patient_count} patients on today's schedule.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error reading files: {e}")
+    else:
+        # Files loaded — show the patient-facing welcome screen
+        sched_df = st.session_state.schedule_df
+        patient_count = sched_df["PatientName2"].nunique() if sched_df is not None and "PatientName2" in sched_df.columns else "?"
+        st.markdown(f"""
+        <div style="text-align:right;margin-bottom:8px;">
+            <span style="background:rgba(255,255,255,0.25);color:white;font-size:12px;
+                         padding:4px 12px;border-radius:20px;">
+                ✅ Schedule loaded &nbsp;·&nbsp; {patient_count} patients today
+            </span>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Tap to Begin →", use_container_width=True, type="primary"):
-        st.session_state.step = "step1"
-        st.rerun()
+        """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="cts-welcome-card">
+            <div class="cts-welcome-icon">👋</div>
+            <div class="cts-welcome-title">Welcome!</div>
+            <div class="cts-welcome-text">
+                Please complete all fields below and sign at the bottom to complete your check-in.
+            </div>
+            <hr class="cts-welcome-divider">
+            <div class="cts-welcome-es">
+                ¡Bienvenido! Por favor complete todos los campos a continuación y firme al final para completar su registro.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Tap to Begin →", use_container_width=True, type="primary"):
+            st.session_state.step = "step1"
+            st.rerun()
+
+        # Small staff reset link at bottom
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("↺ Upload new schedule files", use_container_width=False):
+            st.session_state.files_loaded = False
+            st.session_state.schedule_df  = None
+            st.session_state.directory_df = None
+            st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Patient Name
