@@ -229,6 +229,11 @@ def get_rc_token():
 
 def send_rc_sms(token, to_number, message):
     """Send SMS via RingCentral."""
+    # Convert float to int first to strip the .0 (CSV numbers read as float)
+    try:
+        to_number = int(float(str(to_number)))
+    except:
+        pass
     digits = "".join(c for c in str(to_number) if c.isdigit())
     # If 11 digits starting with 1 (e.g. 12142651819), strip the leading 1
     if len(digits) == 11 and digits.startswith("1"):
