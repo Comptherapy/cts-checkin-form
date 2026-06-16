@@ -448,17 +448,40 @@ if st.session_state.submitting and not st.session_state.submitted:
                 return dp[n]
 
             def _score(csv_name, f, l):
-                typed = _normalize(f + l)
-                norm  = _normalize(csv_name)
+                # Normalize everything
+                typed_full = _normalize(f + l)
+                typed_first = _normalize(f)
+                typed_last  = _normalize(l)
+                norm        = _normalize(csv_name)
                 if not norm: return 0
-                dist  = _levenshtein(norm, typed)
-                full  = 1 - dist / max(len(norm), len(typed), 1)
-                parts = csv_name.split()
-                clast = _normalize(parts[-1]) if parts else ""
-                tlast = _normalize(l)
-                ld    = _levenshtein(clast, tlast)
-                last  = 1 - ld / max(len(clast), len(tlast), 1)
-                return last * 0.6 + full * 0.4
+
+                # Full name similarity
+                dist_full = _levenshtein(norm, typed_full)
+                full_score = 1 - dist_full / max(len(norm), len(typed_full), 1)
+
+                # First name similarity (compare first word of CSV name)
+                parts  = csv_name.replace("-", " ").split()
+                cfirst = _normalize(parts[0]) if parts else ""
+                dist_f = _levenshtein(cfirst, typed_first)
+                first_score = 1 - dist_f / max(len(cfirst), len(typed_first), 1)
+
+                # Last name: check ALL words in CSV name against typed last name
+                # This handles double last names (e.g. "Lara Fuentes" — parent types "Lara")
+                best_last = 0
+                for word in parts[1:]:  # skip first name
+                    w = _normalize(word)
+                    if not w: continue
+                    d = _levenshtein(w, typed_last)
+                    s = 1 - d / max(len(w), len(typed_last), 1)
+                    if s > best_last:
+                        best_last = s
+
+                # Also check if typed last name is contained within the full normalized name
+                if typed_last and typed_last in norm:
+                    best_last = max(best_last, 0.95)
+
+                # Weighted score: last name match counts most
+                return (best_last * 0.55) + (first_score * 0.25) + (full_score * 0.20)
 
             best_score, best_row = 0, None
             for row in reader:
