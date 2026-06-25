@@ -658,65 +658,59 @@ elif st.session_state.step == "step3":
     st.markdown("<br>", unsafe_allow_html=True)
     col_back, col_submit = st.columns([1, 2])
     with col_back:
-        if st.button("← Back", use_container_width=True):
+        if st.button("← Back", use_container_width=True, disabled=st.session_state.submitting):
             st.session_state.step = "step2"
             st.rerun()
     with col_submit:
         # Show disabled spinner if already submitting to prevent double-tap
         if st.session_state.submitting:
             st.button("⏳ Saving... / Guardando...", use_container_width=True,
-                      type="primary", disabled=True)
-        elif st.button("✅ Submit Check-In / Enviar Registro", use_container_width=True,
-                       type="primary", key="submit_checkin_btn"):
-            first  = st.session_state.get("saved_first", "").strip()
-            last   = st.session_state.get("saved_last", "").strip()
-            parent = st.session_state.get("saved_parent", "").strip()
+                      type="primary", disabled=True, key="submitting_placeholder")
+        else:
+            submit_clicked = st.button("✅ Submit Check-In / Enviar Registro",
+                                        use_container_width=True,
+                                        type="primary", key="submit_checkin_btn")
+            if submit_clicked:
+                first  = st.session_state.get("saved_first", "").strip()
+                last   = st.session_state.get("saved_last", "").strip()
+                parent = st.session_state.get("saved_parent", "").strip()
 
-            errors = []
-            if not first:  errors.append("First Name (go back to Step 1)")
-            if not last:   errors.append("Last Name (go back to Step 1)")
-            if not parent: errors.append("Parent Name (go back to Step 2)")
+                errors = []
+                if not first:  errors.append("First Name (go back to Step 1)")
+                if not last:   errors.append("Last Name (go back to Step 1)")
+                if not parent: errors.append("Parent Name (go back to Step 2)")
 
-            if errors:
-                st.error(f"Please fill in: {', '.join(errors)}")
-            else:
-                # Save signature to session state before rerun
-                sig_image = None
-                if canvas_result.image_data is not None:
-                    arr = canvas_result.image_data
-                    if arr[:,:,3].max() > 0:
-                        sig_image = arr.tolist()  # convert for session state storage
-                st.session_state["saved_sig"] = sig_image
-                # Lock the button immediately to prevent double-submit
-                st.session_state.submitting = True
-                st.rerun()
+                # Duplicate guard: block if this exact patient was just submitted
+                # in the last 60 seconds (catches rapid re-taps that slip past
+                # the disabled-button state, while still allowing a genuinely
+                # new check-in for the same family later in the day)
+                now_ts = time.time()
+                last_key = f"{first.lower()}|{last.lower()}|{parent.lower()}"
+                last_submit_key = st.session_state.get("last_submit_key")
+                last_submit_time = st.session_state.get("last_submit_time", 0)
+                is_duplicate = (last_key == last_submit_key) and (now_ts - last_submit_time < 60)
 
-        # ── Instant client-side lock: disables the button the moment it's tapped,
-        # before Streamlit even processes the click. This stops rapid double-taps
-        # that can sneak through during the brief window before rerun completes.
-        st.markdown("""
-        <script>
-        (function() {
-            function lockSubmitButton() {
-                const buttons = window.parent.document.querySelectorAll('button');
-                buttons.forEach(function(btn) {
-                    const txt = btn.innerText || "";
-                    if (txt.includes("Submit Check-In") && !btn.dataset.lockAttached) {
-                        btn.dataset.lockAttached = "true";
-                        btn.addEventListener('pointerdown', function() {
-                            // Visually + functionally disable on the very first touch event
-                            btn.disabled = true;
-                            btn.style.opacity = "0.6";
-                            btn.style.pointerEvents = "none";
-                        }, {capture: true});
-                    }
-                });
-            }
-            lockSubmitButton();
-            setInterval(lockSubmitButton, 500);
-        })();
-        </script>
-        """, unsafe_allow_html=True)
+                if errors:
+                    st.error(f"Please fill in: {', '.join(errors)}")
+                elif is_duplicate:
+                    # Silently treat as success — patient already checked in,
+                    # this was just an extra tap. Skip straight to success screen.
+                    st.session_state.submitted = True
+                    st.rerun()
+                else:
+                    # Save signature to session state before rerun
+                    sig_image = None
+                    if canvas_result.image_data is not None:
+                        arr = canvas_result.image_data
+                        if arr[:,:,3].max() > 0:
+                            sig_image = arr.tolist()  # convert for session state storage
+                    st.session_state["saved_sig"] = sig_image
+                    # Record this submission to guard against duplicates
+                    st.session_state["last_submit_key"]  = last_key
+                    st.session_state["last_submit_time"] = now_ts
+                    # Lock the button immediately to prevent double-submit
+                    st.session_state.submitting = True
+                    st.rerun()
 
 st.markdown("---")
 st.caption("CTS Patient Check-In · Comprehensive Therapy Services · comptherapy.com")
