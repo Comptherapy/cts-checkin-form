@@ -6,9 +6,9 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 import time
- 
+
 st.set_page_config(page_title="CTS Patient Check-In", page_icon="🏥", layout="centered")
- 
+
 # ── Load logo ──────────────────────────────────────────────────────────────────
 logo_path = Path(__file__).parent / "Horizontal Block.png"
 if logo_path.exists():
@@ -17,7 +17,7 @@ if logo_path.exists():
     logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:56px;">'
 else:
     logo_html = '<span style="font-size:16px;font-weight:bold;color:#F47C5A;">Comprehensive Therapy Services</span>'
- 
+
 # ── Styling ────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <style>
@@ -41,7 +41,7 @@ st.markdown(f"""
     div[data-testid="stStatusWidget"],
     button[kind="header"],
     .st-emotion-cache-zq5wmm {{ display: none !important; }}
- 
+
     /* Invisible touch blocker over bottom-right toolbar */
     .cts-toolbar-blocker {{
         position: fixed !important;
@@ -53,7 +53,7 @@ st.markdown(f"""
         background: transparent !important;
         pointer-events: all !important;
     }}
- 
+
     /* Force full landscape width */
     .block-container,
     div[data-testid="stAppViewContainer"] > section > div,
@@ -65,7 +65,7 @@ st.markdown(f"""
         padding-top: 1rem !important;
         padding-bottom: 1rem !important;
     }}
- 
+
     /* Header bar */
     .cts-header {{
         background: white;
@@ -84,7 +84,7 @@ st.markdown(f"""
         text-align: right;
         line-height: 1.8;
     }}
- 
+
     /* Progress bar */
     .cts-progress {{
         display: flex;
@@ -99,7 +99,7 @@ st.markdown(f"""
     }}
     .cts-bar-active {{ background: #F47C5A; }}
     .cts-bar-done   {{ background: #8DC572; }}
- 
+
     /* Cards */
     .cts-card {{
         background: white;
@@ -127,7 +127,7 @@ st.markdown(f"""
         color: #9aabb8;
         margin-bottom: 14px;
     }}
- 
+
     /* Welcome card */
     .cts-welcome-card {{
         background: white;
@@ -145,7 +145,7 @@ st.markdown(f"""
     .cts-welcome-text  {{ font-size: 16px; color: #4a6070; line-height: 1.75; margin-bottom: 12px; }}
     .cts-welcome-es    {{ font-size: 15px; color: #8aaabb; line-height: 1.75; font-style: italic; margin-bottom: 32px; }}
     .cts-welcome-divider {{ border: none; border-top: 1px solid #eef2f6; margin: 0 0 28px; }}
- 
+
     /* Attestation box */
     .cts-attest {{
         background: #fffbf3;
@@ -157,7 +157,7 @@ st.markdown(f"""
         line-height: 1.75;
         margin-bottom: 16px;
     }}
- 
+
     /* Success box */
     .cts-success {{
         background: white;
@@ -169,7 +169,7 @@ st.markdown(f"""
         margin-left: auto;
         margin-right: auto;
     }}
- 
+
     /* Override Streamlit input sizing for kiosk */
     .stTextInput input {{
         font-size: 24px !important;
@@ -196,7 +196,7 @@ st.markdown(f"""
         color: #1a2a36 !important;
         opacity: 1 !important;
     }}
- 
+
     /* Buttons */
     .stButton > button {{
         border-radius: 12px !important;
@@ -205,6 +205,9 @@ st.markdown(f"""
         padding: 16px 24px !important;
         border: none !important;
         min-height: 60px !important;
+        touch-action: manipulation !important;
+        -webkit-tap-highlight-color: transparent !important;
+        user-select: none !important;
     }}
     .stButton > button[kind="primary"] {{
         background: #F47C5A !important;
@@ -216,7 +219,7 @@ st.markdown(f"""
         color: #6a8a9a !important;
     }}
 </style>
- 
+
 <div class="cts-header">
     <div>{logo_html}</div>
     <div class="cts-contact">
@@ -227,13 +230,48 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
- 
+
+# ── Global touch debounce — prevents a rapid double-tap from firing two
+# separate click events on the SAME button before Streamlit's first rerun
+# can process it. This is what was causing the Submit button to freeze on
+# iPad: a second tap landing during the brief window before the page updates.
+st.markdown("""
+<script>
+(function() {
+    // Track the last time ANY button was tapped, globally, with a short
+    // cooldown window. If a second tap lands inside that window, swallow it
+    // before it ever reaches Streamlit's click handler.
+    var lastTapTime = 0;
+    var COOLDOWN_MS = 900;
+
+    function debounceHandler(e) {
+        var target = e.target.closest('button');
+        if (!target) return;
+        var now = Date.now();
+        if (now - lastTapTime < COOLDOWN_MS) {
+            // Swallow this event entirely — too soon after the last tap
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            return false;
+        }
+        lastTapTime = now;
+    }
+
+    // Capture phase so we intercept BEFORE Streamlit's own listeners run
+    document.addEventListener('pointerdown', debounceHandler, {capture: true, passive: false});
+    document.addEventListener('touchstart',  debounceHandler, {capture: true, passive: false});
+    document.addEventListener('click',       debounceHandler, {capture: true, passive: false});
+})();
+</script>
+""", unsafe_allow_html=True)
+
 # ── RingCentral config ────────────────────────────────────────────────────────
 RC_CLIENT_ID     = "4jCbisbV1mddzJRsMA9XOx"
 RC_CLIENT_SECRET = "eQ3QaW05GnccEIG07Ld0caWtzCE9rvSGObkQGV6DGW36"
 RC_JWT_TOKEN     = "eyJraWQiOiI4NzYyZjU5OGQwNTk0NGRiODZiZjVjYTk3ODA0NzYwOCIsInR5cCI6IkpXVCIsImFsZyI6IlJTMjU2In0.eyJhdWQiOiJodHRwczovL3BsYXRmb3JtLnJpbmdjZW50cmFsLmNvbS9yZXN0YXBpL29hdXRoL3Rva2VuIiwic3ViIjoiMTUxMzIwMDM0IiwiaXNzIjoiaHR0cHM6Ly9wbGF0Zm9ybS5yaW5nY2VudHJhbC5jb20iLCJleHAiOjM5MjUxMzYyNzMsImlhdCI6MTc3NzY1MjYyNiwianRpIjoidFdQX19KVFRUOE80Ml8wTkNpdXM0dyJ9.Ew3kNZvr1STczQTF59Nz_HzUv-rm0qynDbUx8kksZ5cnSVrEWQ6RkLNMMpGwHmbjEQkjDmNYWBs91thWMlxHpDsBNt0YBAh5SranJBdOuG9CC_7kHFp9maz6inDWls-Fd4AQaaOYM8EcogAU6IXE3DmApNTezhes0ZEG_xAcQf9DNt_WAFAkxOPsvFTmCcHuvoi4_aC-SAnGioXOgXW95upitjO_QAM-fskzDsEFDgnD9LKhvWCYQFfxKOjJBUeaUK1JxWlywLS08lxc37tDIMcYM7_A8eL7XrRKpk0gG7TFsD8EfrsR7nQvBJEex1H0TCDCO9qIXSWctOzcWHCkvA"
 RC_FROM_NUMBER   = "+12142651819"
- 
+
 def get_rc_token():
     """Get RingCentral access token via JWT."""
     import base64 as _b64
@@ -249,7 +287,7 @@ def get_rc_token():
     if resp.ok:
         return resp.json().get("access_token")
     return None
- 
+
 def send_rc_sms(token, to_number, message):
     """Send SMS via RingCentral."""
     # Convert float to int first to strip the .0 (CSV numbers read as float)
@@ -271,9 +309,9 @@ def send_rc_sms(token, to_number, message):
         timeout=5
     )
     return resp.ok
- 
+
 # ── Dropbox config ─────────────────────────────────────────────────────────────
- 
+
 def save_pdf_to_dropbox(pdf_bytes, filename):
     try:
         import dropbox as _dbx
@@ -298,28 +336,28 @@ def save_pdf_to_dropbox(pdf_bytes, filename):
         return True, None
     except Exception as e:
         return False, str(e)
- 
+
 def build_pdf(first, last, dob, parent, sig_image, checkin_time):
     from reportlab.lib.pagesizes import letter
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.lib import colors
- 
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter,
                             leftMargin=0.75*inch, rightMargin=0.75*inch,
                             topMargin=0.75*inch, bottomMargin=0.75*inch)
     styles = getSampleStyleSheet()
     story = []
- 
+
     header_style = ParagraphStyle('header', fontSize=16, textColor=colors.HexColor('#2F5496'), spaceAfter=4)
     sub_style    = ParagraphStyle('sub',    fontSize=10, textColor=colors.grey, spaceAfter=12)
     story.append(Paragraph("Comprehensive Therapy Services", header_style))
     story.append(Paragraph("2201 N Central Expwy, Suite 110 · Richardson, TX 75080 · 214-265-1819", sub_style))
     story.append(Paragraph(f"<b>Patient Check-In Record</b> &nbsp;&nbsp; {checkin_time}", styles['Normal']))
     story.append(Spacer(1, 0.15*inch))
- 
+
     data = [
         ["Patient First Name / Nombre:", first,  "Patient Last Name / Apellido:", last],
         ["Date of Birth / Fecha de Nacimiento:", dob, "Parent/Guardian / Padre o Tutor:", parent],
@@ -336,7 +374,7 @@ def build_pdf(first, last, dob, parent, sig_image, checkin_time):
     ]))
     story.append(t)
     story.append(Spacer(1, 0.15*inch))
- 
+
     attest_en = ("By signing below, I confirm that my child is present today for their "
                  "scheduled therapy appointment at Comprehensive Therapy Services.")
     attest_es = ("Al firmar a continuacion, confirmo que mi hijo/a esta presente hoy para su "
@@ -346,7 +384,7 @@ def build_pdf(first, last, dob, parent, sig_image, checkin_time):
                                 borderColor=colors.HexColor('#f9a825'), borderWidth=1,
                                 borderRadius=4, spaceAfter=10)
     story.append(Paragraph(f"{attest_en}<br/><br/><i>{attest_es}</i>", box_style))
- 
+
     story.append(Paragraph("<b>Parent/Guardian Signature / Firma del Padre o Tutor:</b>", styles['Normal']))
     story.append(Spacer(1, 0.05*inch))
     if sig_image is not None:
@@ -362,20 +400,20 @@ def build_pdf(first, last, dob, parent, sig_image, checkin_time):
     else:
         story.append(Paragraph("<i>No signature captured</i>",
                                 ParagraphStyle('ns', fontSize=9, textColor=colors.grey)))
- 
+
     story.append(Spacer(1, 0.1*inch))
     story.append(Paragraph(f"Signed at: {checkin_time}",
                             ParagraphStyle('ts', fontSize=8, textColor=colors.grey)))
     doc.build(story)
     return buf.getvalue()
- 
- 
- 
+
+
+
 # ── Session state ──────────────────────────────────────────────────────────────
 for key, default in [("step", "welcome"), ("submitted", False), ("form_key", 0), ("submitting", False), ("submit_lock_token", None), ("submit_lock_time", 0)]:
     if key not in st.session_state:
         st.session_state[key] = default
- 
+
 def reset():
     st.session_state.step = "welcome"
     st.session_state.submitted = False
@@ -386,7 +424,7 @@ def reset():
     for k in ["saved_first", "saved_last", "saved_parent", "saved_sig"]:
         st.session_state.pop(k, None)
     st.rerun()
- 
+
 # ── Progress bar renderer ──────────────────────────────────────────────────────
 def render_progress(active_step):
     """active_step: 1, 2, or 3"""
@@ -399,13 +437,13 @@ def render_progress(active_step):
         else:
             bars.append('<div class="cts-bar"></div>')
     st.markdown(f'<div class="cts-progress">{"".join(bars)}</div>', unsafe_allow_html=True)
- 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # (Submission processing now happens inline at the moment of button click —
 # see the Step 3 submit handler above — to eliminate the gap between "lock set"
 # and "work done" where rapid double-taps could slip through)
 # ══════════════════════════════════════════════════════════════════════════════
- 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SUCCESS SCREEN
 # ══════════════════════════════════════════════════════════════════════════════
@@ -420,14 +458,14 @@ if st.session_state.submitted:
         <p style="font-size:16px;color:#555;">Por favor tome asiento — su terapeuta estará con usted pronto.</p>
     </div>
     """, unsafe_allow_html=True)
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Next Patient / Siguiente Paciente →", use_container_width=True, type="primary"):
         reset()
- 
+
     time.sleep(10)
     reset()
- 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # WELCOME SCREEN
 # ══════════════════════════════════════════════════════════════════════════════
@@ -449,7 +487,7 @@ elif st.session_state.step == "welcome":
     if st.button("Tap to Begin →", use_container_width=True, type="primary"):
         st.session_state.step = "step1"
         st.rerun()
- 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Patient Name
 # ══════════════════════════════════════════════════════════════════════════════
@@ -462,13 +500,13 @@ elif st.session_state.step == "step1":
         <div class="cts-subheading">¿Cuál es el nombre de su hijo/a?</div>
     </div>
     """, unsafe_allow_html=True)
- 
+
     col1, col2 = st.columns(2)
     with col1:
         first = st.text_input("First Name / Nombre *", key=f"first_{st.session_state.form_key}")
     with col2:
         last = st.text_input("Last Name / Apellido *", key=f"last_{st.session_state.form_key}")
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
     col_back, col_next = st.columns([1, 2])
     with col_back:
@@ -484,7 +522,7 @@ elif st.session_state.step == "step1":
                 st.session_state["saved_last"] = last.strip()
                 st.session_state.step = "step2"
                 st.rerun()
- 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 — Parent Name
 # ══════════════════════════════════════════════════════════════════════════════
@@ -497,10 +535,10 @@ elif st.session_state.step == "step2":
         <div class="cts-subheading">Nombre del padre, madre o tutor</div>
     </div>
     """, unsafe_allow_html=True)
- 
+
     parent = st.text_input("Parent/Guardian Name / Nombre del Padre o Tutor *",
                             key=f"parent_{st.session_state.form_key}")
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
     col_back, col_next = st.columns([1, 2])
     with col_back:
@@ -515,7 +553,7 @@ elif st.session_state.step == "step2":
                 st.session_state["saved_parent"] = parent.strip()
                 st.session_state.step = "step3"
                 st.rerun()
- 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 3 — Signature only (no keyboard fields — solves iPad keyboard issue)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -528,7 +566,7 @@ elif st.session_state.step == "step3":
         <div class="cts-subheading">Por favor firme a continuación</div>
     </div>
     """, unsafe_allow_html=True)
- 
+
     st.markdown("""
     <div style="background:#e8f6fb;border-radius:10px;padding:12px 16px;margin-bottom:16px;
                 font-size:14px;color:#2d7a96;display:flex;align-items:center;gap:10px;">
@@ -543,7 +581,7 @@ elif st.session_state.step == "step3":
         terapia programada en Comprehensive Therapy Services.</em>
     </div>
     """, unsafe_allow_html=True)
- 
+
     st.markdown("**Sign below / Firme abajo:**")
     canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 0)",
@@ -556,7 +594,7 @@ elif st.session_state.step == "step3":
         key=f"canvas_{st.session_state.form_key}",
     )
     st.caption("Use your finger on iPad or mouse on desktop to sign above.")
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
     col_back, col_submit = st.columns([1, 2])
     with col_back:
@@ -576,12 +614,12 @@ elif st.session_state.step == "step3":
                 first  = st.session_state.get("saved_first", "").strip()
                 last   = st.session_state.get("saved_last", "").strip()
                 parent = st.session_state.get("saved_parent", "").strip()
- 
+
                 errors = []
                 if not first:  errors.append("First Name (go back to Step 1)")
                 if not last:   errors.append("Last Name (go back to Step 1)")
                 if not parent: errors.append("Parent Name (go back to Step 2)")
- 
+
                 # Duplicate guard: block if this exact patient was just submitted
                 # in the last 60 seconds (catches rapid re-taps that slip past
                 # the disabled-button state, while still allowing a genuinely
@@ -591,7 +629,7 @@ elif st.session_state.step == "step3":
                 last_submit_key = st.session_state.get("last_submit_key")
                 last_submit_time = st.session_state.get("last_submit_time", 0)
                 is_duplicate = (last_key == last_submit_key) and (now_ts - last_submit_time < 60)
- 
+
                 if errors:
                     st.error(f"Please fill in: {', '.join(errors)}")
                 elif is_duplicate:
@@ -605,12 +643,12 @@ elif st.session_state.step == "step3":
                     my_token = str(_uuid.uuid4())
                     existing_lock = st.session_state.get("submit_lock_token")
                     lock_time = st.session_state.get("submit_lock_time", 0)
- 
+
                     # If a lock exists but is older than 15 seconds, treat it as stale/abandoned
                     # (e.g. iPad browser hiccup) and allow this tap to take over rather than
                     # leaving the button stuck on "Saving..." forever
                     lock_is_stale = (time.time() - lock_time) > 15
- 
+
                     if existing_lock is not None and not lock_is_stale:
                         # Genuine duplicate tap while a submission is actively in progress —
                         # just ignore this click, do nothing, let the in-progress one finish
@@ -619,28 +657,28 @@ elif st.session_state.step == "step3":
                         st.session_state["submit_lock_token"] = my_token
                         st.session_state["submit_lock_time"]  = time.time()
                         st.session_state.submitting = True
- 
+
                         # Save signature
                         sig_image = None
                         if canvas_result.image_data is not None:
                             arr = canvas_result.image_data
                             if arr[:,:,3].max() > 0:
                                 sig_image = arr
- 
+
                         # Record this submission to guard against duplicates
                         st.session_state["last_submit_key"]  = last_key
                         st.session_state["last_submit_time"] = now_ts
- 
+
                         # ── Do the actual work RIGHT NOW, in this same script run ──
                         # (not on a later rerun) so rapid re-taps have nothing to latch onto
                         checkin_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         filename = f"{last}_{first}_{datetime.now().strftime('%H%M%S')}.pdf"
- 
+
                         try:
                             with st.spinner("Saving your check-in... / Guardando su registro..."):
                                 pdf_bytes = build_pdf(first, last, "", parent, sig_image, checkin_time)
                                 save_pdf_to_dropbox(pdf_bytes, filename)
- 
+
                                 # Send SMS via RingCentral — read schedule from Dropbox
                                 try:
                                     import dropbox as _dbx
@@ -654,10 +692,10 @@ elif st.session_state.step == "step3":
                                     _, res = dbx.files_download("/Apps/CTS Schedule Sync/daily_schedule.csv")
                                     csv_text = res.content.decode("utf-8")
                                     reader = list(csv.DictReader(_io.StringIO(csv_text)))
- 
+
                                     def _normalize(s):
                                         return s.lower().replace(" ", "").replace("-", "")
- 
+
                                     def _levenshtein(a, b):
                                         m, n = len(a), len(b)
                                         dp = list(range(n + 1))
@@ -668,7 +706,7 @@ elif st.session_state.step == "step3":
                                                 dp[j] = prev if a[i-1] == b[j-1] else 1 + min(prev, dp[j], dp[j-1])
                                                 prev = temp
                                         return dp[n]
- 
+
                                     def _score(csv_name, f, l):
                                         typed_full = _normalize(f + l)
                                         typed_first = _normalize(f)
@@ -692,13 +730,13 @@ elif st.session_state.step == "step3":
                                         if typed_last and typed_last in norm:
                                             best_last = max(best_last, 0.95)
                                         return (best_last * 0.55) + (first_score * 0.25) + (full_score * 0.20)
- 
+
                                     best_score, best_row = 0, None
                                     for row in reader:
                                         s = _score(row.get("Patient Name", ""), first, last)
                                         if s > best_score:
                                             best_score, best_row = s, row
- 
+
                                     if best_row and best_score >= 0.65:
                                         token_rc = get_rc_token()
                                         if token_rc:
@@ -709,7 +747,7 @@ elif st.session_state.step == "step3":
                                                     send_rc_sms(token_rc, phone, message)
                                 except Exception:
                                     pass  # Silent fail — check-in completes even if SMS fails
- 
+
                         finally:
                             # ALWAYS runs, even if something above hangs/errors —
                             # guarantees the button can never stay stuck on "Saving..."
