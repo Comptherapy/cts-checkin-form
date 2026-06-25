@@ -231,79 +231,32 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Global touch debounce — prevents a rapid double-tap from firing two
-# separate click events on the SAME button before Streamlit's first rerun
-# can process it.
-st.markdown("""
-<script>
-(function() {
-    var lastTapTime = 0;
-    var COOLDOWN_MS = 2000;
+# NOTE: A JavaScript-based tap debounce was tried here previously, but
+# st.markdown(unsafe_allow_html=True) does not actually execute <script> tags
+# at all — Streamlit strips/ignores them. That's also why earlier attempts to
+# hide the toolbar buttons or run a "watchdog" via st.markdown never worked.
+# Real protection against double-taps now comes from: (1) the server-side
+# duplicate-name guard below, and (2) the meta-refresh recovery further down.
 
-    function debounceHandler(e) {
-        var target = e.target.closest('button');
-        if (!target) return;
-        var now = Date.now();
-        if (now - lastTapTime < COOLDOWN_MS) {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-            return false;
-        }
-        lastTapTime = now;
-    }
-
-    document.addEventListener('pointerdown', debounceHandler, {capture: true, passive: false});
-    document.addEventListener('touchstart',  debounceHandler, {capture: true, passive: false});
-    document.addEventListener('click',       debounceHandler, {capture: true, passive: false});
-})();
-</script>
-""", unsafe_allow_html=True)
-
-# ── Frozen-session watchdog ───────────────────────────────────────────────────
-# Root cause of the iPad freeze: Safari on iOS is known to silently drop the
-# Streamlit WebSocket connection (especially after any brief idle moment),
-# leaving the page stuck showing "Saving..." forever with no error, because
-# the click was sent but the server's response never made it back. A manual
-# page refresh opens a fresh WebSocket and fixes it — this watchdog automates
-# that exact recovery: if the Submit button sits on "Saving..." for more than
-# 12 seconds, it force-reloads the page automatically so staff/parents never
-# have to notice and do it themselves.
-st.markdown("""
-<script>
-(function() {
-    var watchdogTimer = null;
-    var WATCHDOG_MS = 12000;
-
-    function findSavingButton() {
-        var buttons = document.querySelectorAll('button');
-        for (var i = 0; i < buttons.length; i++) {
-            if (buttons[i].innerText && buttons[i].innerText.indexOf('Saving') !== -1) {
-                return buttons[i];
-            }
-        }
-        return null;
-    }
-
-    function checkWatchdog() {
-        var stillSaving = findSavingButton();
-        if (stillSaving) {
-            if (!watchdogTimer) {
-                watchdogTimer = Date.now();
-            } else if (Date.now() - watchdogTimer > WATCHDOG_MS) {
-                // Stuck too long — the WebSocket is almost certainly dead.
-                // Force a hard reload to recover, same as a manual refresh.
-                window.location.reload();
-            }
-        } else {
-            watchdogTimer = null;
-        }
-    }
-
-    setInterval(checkWatchdog, 1000);
-})();
-</script>
-""", unsafe_allow_html=True)
+# ── Frozen-session watchdog (server-side, iframe-proof) ──────────────────────
+# Root cause of the iPad freeze: the Streamlit WebSocket can silently die,
+# leaving the page stuck on "Saving..." forever with no error. Earlier attempts
+# used JavaScript to detect this client-side, but Streamlit's markdown/components
+# render inside a sandboxed iframe that can't always see or reload the real
+# parent page — the same issue we hit trying to hide the toolbar buttons.
+#
+# This version is server-side instead: while submitting=True, every rerun emits
+# an HTML <meta http-equiv="refresh"> tag targeting the TOP-level page (not the
+# iframe) with a countdown. If the WebSocket is alive, Streamlit's own reruns
+# keep happening faster than this and it never fires. If the WebSocket dies,
+# nothing competes with it and the browser's native meta-refresh — which works
+# completely independently of any JavaScript or iframe context — reloads the
+# page after the countdown with no JS required at all.
+if st.session_state.get("submitting"):
+    st.markdown(
+        '<meta http-equiv="refresh" content="14">',
+        unsafe_allow_html=True
+    )
 
 # ── RingCentral config ────────────────────────────────────────────────────────
 RC_CLIENT_ID     = "4jCbisbV1mddzJRsMA9XOx"
