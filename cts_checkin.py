@@ -683,102 +683,128 @@ elif st.session_state.step == "step3":
                         st.session_state["submit_lock_time"]  = time.time()
                         st.session_state.submitting = True
 
-                        # Save signature
+                        # Save signature to session state NOW, since canvas data is
+                        # only available on this exact script run (the click), not
+                        # on the follow-up rerun that actually does the work
                         sig_image = None
                         if canvas_result.image_data is not None:
                             arr = canvas_result.image_data
                             if arr[:,:,3].max() > 0:
-                                sig_image = arr
+                                sig_image = arr.tolist()
+                        st.session_state["pending_sig"] = sig_image
 
                         # Record this submission to guard against duplicates
                         st.session_state["last_submit_key"]  = last_key
                         st.session_state["last_submit_time"] = now_ts
 
-                        # ── Do the actual work RIGHT NOW, in this same script run ──
-                        # (not on a later rerun) so rapid re-taps have nothing to latch onto
-                        checkin_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        filename = f"{last}_{first}_{datetime.now().strftime('%H%M%S')}.pdf"
-
-                        try:
-                            with st.spinner("Saving your check-in... / Guardando su registro..."):
-                                pdf_bytes = build_pdf(first, last, "", parent, sig_image, checkin_time)
-                                save_pdf_to_dropbox(pdf_bytes, filename)
-
-                                # Send SMS via RingCentral — read schedule from Dropbox
-                                try:
-                                    import dropbox as _dbx
-                                    import csv, io as _io
-                                    dbx = _dbx.Dropbox(
-                                        oauth2_refresh_token=st.secrets["DROPBOX_REFRESH_TOKEN"],
-                                        app_key=st.secrets["DROPBOX_APP_KEY"],
-                                        app_secret=st.secrets["DROPBOX_APP_SECRET"],
-                                        timeout=6  # hard cap so a slow/flaky connection can't hang forever
-                                    )
-                                    _, res = dbx.files_download("/Apps/CTS Schedule Sync/daily_schedule.csv")
-                                    csv_text = res.content.decode("utf-8")
-                                    reader = list(csv.DictReader(_io.StringIO(csv_text)))
-
-                                    def _normalize(s):
-                                        return s.lower().replace(" ", "").replace("-", "")
-
-                                    def _levenshtein(a, b):
-                                        m, n = len(a), len(b)
-                                        dp = list(range(n + 1))
-                                        for i in range(1, m + 1):
-                                            prev, dp[0] = dp[0], i
-                                            for j in range(1, n + 1):
-                                                temp = dp[j]
-                                                dp[j] = prev if a[i-1] == b[j-1] else 1 + min(prev, dp[j], dp[j-1])
-                                                prev = temp
-                                        return dp[n]
-
-                                    def _score(csv_name, f, l):
-                                        typed_full = _normalize(f + l)
-                                        typed_first = _normalize(f)
-                                        typed_last  = _normalize(l)
-                                        norm        = _normalize(csv_name)
-                                        if not norm: return 0
-                                        dist_full = _levenshtein(norm, typed_full)
-                                        full_score = 1 - dist_full / max(len(norm), len(typed_full), 1)
-                                        parts  = csv_name.replace("-", " ").split()
-                                        cfirst = _normalize(parts[0]) if parts else ""
-                                        dist_f = _levenshtein(cfirst, typed_first)
-                                        first_score = 1 - dist_f / max(len(cfirst), len(typed_first), 1)
-                                        best_last = 0
-                                        for word in parts[1:]:
-                                            w = _normalize(word)
-                                            if not w: continue
-                                            d = _levenshtein(w, typed_last)
-                                            s = 1 - d / max(len(w), len(typed_last), 1)
-                                            if s > best_last:
-                                                best_last = s
-                                        if typed_last and typed_last in norm:
-                                            best_last = max(best_last, 0.95)
-                                        return (best_last * 0.55) + (first_score * 0.25) + (full_score * 0.20)
-
-                                    best_score, best_row = 0, None
-                                    for row in reader:
-                                        s = _score(row.get("Patient Name", ""), first, last)
-                                        if s > best_score:
-                                            best_score, best_row = s, row
-
-                                    if best_row and best_score >= 0.65:
-                                        token_rc = get_rc_token()
-                                        if token_rc:
-                                            for i in range(1, 4):
-                                                phone   = best_row.get(f"Phone{i}",   "").strip()
-                                                message = best_row.get(f"Message{i}", "").strip()
-                                                if phone and message:
-                                                    send_rc_sms(token_rc, phone, message)
-                                except Exception:
-                                    pass  # Silent fail — check-in completes even if SMS fails
-
-                        finally:
-                            # ALWAYS runs, even if something above hangs/errors —
-                            # guarantees the button can never stay stuck on "Saving..."
-                            st.session_state.submitting = False
-                            st.session_state["submit_lock_token"] = None
-                        st.session_state.submitted = True
+                        # ── Rerun IMMEDIATELY, before doing any save/SMS work ──
+                        # This is the key fix: it means the big, impossible-to-miss
+                        # "Saving..." banner renders on its own dedicated screen the
+                        # instant the parent taps, rather than only appearing if they
+                        # tap a second time. The actual work happens on this next run,
+                        # in the "PROCESS SUBMISSION" block below.
                         st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PROCESS SUBMISSION — runs on the rerun triggered immediately after the tap,
+# so the big "Saving..." banner is already visible before any slow network
+# work (PDF build, Dropbox upload, SMS) begins.
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.get("submitting") and not st.session_state.get("submitted"):
+    first  = st.session_state.get("saved_first", "").strip()
+    last   = st.session_state.get("saved_last", "").strip()
+    parent = st.session_state.get("saved_parent", "").strip()
+
+    sig_raw = st.session_state.get("pending_sig")
+    sig_image = None
+    if sig_raw is not None:
+        import numpy as _np
+        sig_image = _np.array(sig_raw)
+
+    checkin_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    filename = f"{last}_{first}_{datetime.now().strftime('%H%M%S')}.pdf"
+
+    try:
+        pdf_bytes = build_pdf(first, last, "", parent, sig_image, checkin_time)
+        save_pdf_to_dropbox(pdf_bytes, filename)
+
+        # Send SMS via RingCentral — read schedule from Dropbox
+        try:
+            import dropbox as _dbx
+            import csv, io as _io
+            dbx = _dbx.Dropbox(
+                oauth2_refresh_token=st.secrets["DROPBOX_REFRESH_TOKEN"],
+                app_key=st.secrets["DROPBOX_APP_KEY"],
+                app_secret=st.secrets["DROPBOX_APP_SECRET"],
+                timeout=6  # hard cap so a slow/flaky connection can't hang forever
+            )
+            _, res = dbx.files_download("/Apps/CTS Schedule Sync/daily_schedule.csv")
+            csv_text = res.content.decode("utf-8")
+            reader = list(csv.DictReader(_io.StringIO(csv_text)))
+
+            def _normalize(s):
+                return s.lower().replace(" ", "").replace("-", "")
+
+            def _levenshtein(a, b):
+                m, n = len(a), len(b)
+                dp = list(range(n + 1))
+                for i in range(1, m + 1):
+                    prev, dp[0] = dp[0], i
+                    for j in range(1, n + 1):
+                        temp = dp[j]
+                        dp[j] = prev if a[i-1] == b[j-1] else 1 + min(prev, dp[j], dp[j-1])
+                        prev = temp
+                return dp[n]
+
+            def _score(csv_name, f, l):
+                typed_full = _normalize(f + l)
+                typed_first = _normalize(f)
+                typed_last  = _normalize(l)
+                norm        = _normalize(csv_name)
+                if not norm: return 0
+                dist_full = _levenshtein(norm, typed_full)
+                full_score = 1 - dist_full / max(len(norm), len(typed_full), 1)
+                parts  = csv_name.replace("-", " ").split()
+                cfirst = _normalize(parts[0]) if parts else ""
+                dist_f = _levenshtein(cfirst, typed_first)
+                first_score = 1 - dist_f / max(len(cfirst), len(typed_first), 1)
+                best_last = 0
+                for word in parts[1:]:
+                    w = _normalize(word)
+                    if not w: continue
+                    d = _levenshtein(w, typed_last)
+                    s = 1 - d / max(len(w), len(typed_last), 1)
+                    if s > best_last:
+                        best_last = s
+                if typed_last and typed_last in norm:
+                    best_last = max(best_last, 0.95)
+                return (best_last * 0.55) + (first_score * 0.25) + (full_score * 0.20)
+
+            best_score, best_row = 0, None
+            for row in reader:
+                s = _score(row.get("Patient Name", ""), first, last)
+                if s > best_score:
+                    best_score, best_row = s, row
+
+            if best_row and best_score >= 0.65:
+                token_rc = get_rc_token()
+                if token_rc:
+                    for i in range(1, 4):
+                        phone   = best_row.get(f"Phone{i}",   "").strip()
+                        message = best_row.get(f"Message{i}", "").strip()
+                        if phone and message:
+                            send_rc_sms(token_rc, phone, message)
+        except Exception:
+            pass  # Silent fail — check-in completes even if SMS fails
+
+    finally:
+        # ALWAYS runs, even if something above hangs/errors —
+        # guarantees the button can never stay stuck on "Saving..."
+        st.session_state.submitting = False
+        st.session_state["submit_lock_token"] = None
+        st.session_state.pop("pending_sig", None)
+    st.session_state.submitted = True
+    st.rerun()
+
 st.markdown("---")
 st.caption("CTS Patient Check-In · Comprehensive Therapy Services · comptherapy.com")
