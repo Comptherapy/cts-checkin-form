@@ -588,6 +588,39 @@ elif st.session_state.step == "step3":
     st.caption("Use your finger on iPad or mouse on desktop to sign above.")
 
     st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Full-width "saving" takeover — shown ABOVE the columns so it can't be
+    # missed or squeezed into half the screen width ──
+    if st.session_state.submitting:
+        st.markdown("""
+        <div style="background:#F47C5A; border-radius:16px; padding:28px 24px;
+                    text-align:center; margin-bottom:18px;
+                    box-shadow:0 6px 20px rgba(244,124,90,0.4);
+                    animation: ctsPulse 1.4s ease-in-out infinite;">
+            <div style="font-size:48px; line-height:1;">⏳</div>
+            <div style="font-size:26px; font-weight:800; color:white; margin-top:8px;">
+                Saving your check-in...
+            </div>
+            <div style="font-size:16px; color:#fff0eb; margin-top:6px;">
+                Please wait — do not tap again
+            </div>
+            <div style="height:1px; background:rgba(255,255,255,0.4); margin:14px auto; width:80%;"></div>
+            <div style="font-size:24px; font-weight:800; color:white;">
+                Guardando su registro...
+            </div>
+            <div style="font-size:16px; color:#fff0eb; margin-top:6px;">
+                Por favor espere — no toque de nuevo
+            </div>
+        </div>
+        <style>
+        @keyframes ctsPulse {
+            0%   { transform: scale(1);    opacity: 1;    }
+            50%  { transform: scale(1.015); opacity: 0.92; }
+            100% { transform: scale(1);    opacity: 1;    }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
     col_back, col_submit = st.columns([1, 2])
     with col_back:
         if st.button("← Back", use_container_width=True, disabled=st.session_state.submitting):
@@ -596,19 +629,6 @@ elif st.session_state.step == "step3":
     with col_submit:
         # Show disabled spinner if already submitting to prevent double-tap
         if st.session_state.submitting:
-            st.markdown("""
-            <div style="background:#fff4ec; border:2px solid #F47C5A; border-radius:12px;
-                        padding:16px 20px; text-align:center; font-size:18px; font-weight:bold;
-                        color:#F47C5A;">
-                ⏳ Saving your check-in...<br>
-                <span style="font-size:14px; font-weight:normal; color:#a06a55;">
-                    Please wait — no need to tap again
-                </span><br>
-                <span style="font-size:13px; font-weight:normal; color:#a06a55; font-style:italic;">
-                    Guardando su registro — por favor espere, no es necesario tocar de nuevo
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
             st.button("⏳ Saving... / Guardando...", use_container_width=True,
                       type="primary", disabled=True, key="submitting_placeholder")
         else:
