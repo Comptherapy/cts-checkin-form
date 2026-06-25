@@ -412,6 +412,7 @@ def reset():
     st.session_state.submitting = False
     st.session_state["submit_lock_token"] = None
     st.session_state["submit_lock_time"] = 0
+    st.session_state.pop("success_shown_at", None)
     st.session_state.form_key += 1
     for k in ["saved_first", "saved_last", "saved_parent", "saved_sig"]:
         st.session_state.pop(k, None)
@@ -455,8 +456,25 @@ if st.session_state.submitted:
     if st.button("Next Patient / Siguiente Paciente →", use_container_width=True, type="primary"):
         reset()
 
-    time.sleep(10)
-    reset()
+    # ── Auto-reset safety net WITHOUT blocking the page ──
+    # Previously this used time.sleep(10), which froze the entire script for
+    # 10 full seconds before it could even check whether "Next Patient" had
+    # been tapped — meaning every check-in felt 10+ seconds slower than it
+    # needed to be, even when staff tapped the button immediately. Now we
+    # just record when the success screen first appeared and compare against
+    # the current time on each rerun, so the manual button stays instant and
+    # the auto-reset still kicks in if the screen is genuinely left untouched.
+    if "success_shown_at" not in st.session_state:
+        st.session_state["success_shown_at"] = time.time()
+
+    elapsed = time.time() - st.session_state.get("success_shown_at", time.time())
+    if elapsed >= 10:
+        reset()
+    else:
+        # Use a lightweight meta-refresh to re-check after the remaining time,
+        # rather than blocking with time.sleep (which would freeze the button)
+        remaining = max(1, int(10 - elapsed) + 1)
+        st.markdown(f'<meta http-equiv="refresh" content="{remaining}">', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # WELCOME SCREEN
