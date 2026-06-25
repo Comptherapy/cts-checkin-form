@@ -666,7 +666,8 @@ elif st.session_state.step == "step3":
         if st.session_state.submitting:
             st.button("⏳ Saving... / Guardando...", use_container_width=True,
                       type="primary", disabled=True)
-        elif st.button("✅ Submit Check-In / Enviar Registro", use_container_width=True, type="primary"):
+        elif st.button("✅ Submit Check-In / Enviar Registro", use_container_width=True,
+                       type="primary", key="submit_checkin_btn"):
             first  = st.session_state.get("saved_first", "").strip()
             last   = st.session_state.get("saved_last", "").strip()
             parent = st.session_state.get("saved_parent", "").strip()
@@ -689,6 +690,33 @@ elif st.session_state.step == "step3":
                 # Lock the button immediately to prevent double-submit
                 st.session_state.submitting = True
                 st.rerun()
+
+        # ── Instant client-side lock: disables the button the moment it's tapped,
+        # before Streamlit even processes the click. This stops rapid double-taps
+        # that can sneak through during the brief window before rerun completes.
+        st.markdown("""
+        <script>
+        (function() {
+            function lockSubmitButton() {
+                const buttons = window.parent.document.querySelectorAll('button');
+                buttons.forEach(function(btn) {
+                    const txt = btn.innerText || "";
+                    if (txt.includes("Submit Check-In") && !btn.dataset.lockAttached) {
+                        btn.dataset.lockAttached = "true";
+                        btn.addEventListener('pointerdown', function() {
+                            // Visually + functionally disable on the very first touch event
+                            btn.disabled = true;
+                            btn.style.opacity = "0.6";
+                            btn.style.pointerEvents = "none";
+                        }, {capture: true});
+                    }
+                });
+            }
+            lockSubmitButton();
+            setInterval(lockSubmitButton, 500);
+        })();
+        </script>
+        """, unsafe_allow_html=True)
 
 st.markdown("---")
 st.caption("CTS Patient Check-In · Comprehensive Therapy Services · comptherapy.com")
