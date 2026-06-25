@@ -233,23 +233,18 @@ st.markdown(f"""
 
 # ── Global touch debounce — prevents a rapid double-tap from firing two
 # separate click events on the SAME button before Streamlit's first rerun
-# can process it. This is what was causing the Submit button to freeze on
-# iPad: a second tap landing during the brief window before the page updates.
+# can process it.
 st.markdown("""
 <script>
 (function() {
-    // Track the last time ANY button was tapped, globally, with a short
-    // cooldown window. If a second tap lands inside that window, swallow it
-    // before it ever reaches Streamlit's click handler.
     var lastTapTime = 0;
-    var COOLDOWN_MS = 900;
+    var COOLDOWN_MS = 2000;
 
     function debounceHandler(e) {
         var target = e.target.closest('button');
         if (!target) return;
         var now = Date.now();
         if (now - lastTapTime < COOLDOWN_MS) {
-            // Swallow this event entirely — too soon after the last tap
             e.preventDefault();
             e.stopPropagation();
             if (e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -258,10 +253,54 @@ st.markdown("""
         lastTapTime = now;
     }
 
-    // Capture phase so we intercept BEFORE Streamlit's own listeners run
     document.addEventListener('pointerdown', debounceHandler, {capture: true, passive: false});
     document.addEventListener('touchstart',  debounceHandler, {capture: true, passive: false});
     document.addEventListener('click',       debounceHandler, {capture: true, passive: false});
+})();
+</script>
+""", unsafe_allow_html=True)
+
+# ── Frozen-session watchdog ───────────────────────────────────────────────────
+# Root cause of the iPad freeze: Safari on iOS is known to silently drop the
+# Streamlit WebSocket connection (especially after any brief idle moment),
+# leaving the page stuck showing "Saving..." forever with no error, because
+# the click was sent but the server's response never made it back. A manual
+# page refresh opens a fresh WebSocket and fixes it — this watchdog automates
+# that exact recovery: if the Submit button sits on "Saving..." for more than
+# 12 seconds, it force-reloads the page automatically so staff/parents never
+# have to notice and do it themselves.
+st.markdown("""
+<script>
+(function() {
+    var watchdogTimer = null;
+    var WATCHDOG_MS = 12000;
+
+    function findSavingButton() {
+        var buttons = document.querySelectorAll('button');
+        for (var i = 0; i < buttons.length; i++) {
+            if (buttons[i].innerText && buttons[i].innerText.indexOf('Saving') !== -1) {
+                return buttons[i];
+            }
+        }
+        return null;
+    }
+
+    function checkWatchdog() {
+        var stillSaving = findSavingButton();
+        if (stillSaving) {
+            if (!watchdogTimer) {
+                watchdogTimer = Date.now();
+            } else if (Date.now() - watchdogTimer > WATCHDOG_MS) {
+                // Stuck too long — the WebSocket is almost certainly dead.
+                // Force a hard reload to recover, same as a manual refresh.
+                window.location.reload();
+            }
+        } else {
+            watchdogTimer = null;
+        }
+    }
+
+    setInterval(checkWatchdog, 1000);
 })();
 </script>
 """, unsafe_allow_html=True)
@@ -604,6 +643,19 @@ elif st.session_state.step == "step3":
     with col_submit:
         # Show disabled spinner if already submitting to prevent double-tap
         if st.session_state.submitting:
+            st.markdown("""
+            <div style="background:#fff4ec; border:2px solid #F47C5A; border-radius:12px;
+                        padding:16px 20px; text-align:center; font-size:18px; font-weight:bold;
+                        color:#F47C5A;">
+                ⏳ Saving your check-in...<br>
+                <span style="font-size:14px; font-weight:normal; color:#a06a55;">
+                    Please wait — no need to tap again
+                </span><br>
+                <span style="font-size:13px; font-weight:normal; color:#a06a55; font-style:italic;">
+                    Guardando su registro — por favor espere, no es necesario tocar de nuevo
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
             st.button("⏳ Saving... / Guardando...", use_container_width=True,
                       type="primary", disabled=True, key="submitting_placeholder")
         else:
