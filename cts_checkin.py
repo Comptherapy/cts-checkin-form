@@ -6,6 +6,56 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 import time
+import tempfile
+
+# ── True atomic claim file for double-submit protection ────────────────────────
+# st.session_state alone is NOT safe against rapid duplicate taps: when two
+# taps land close together, Streamlit can start a second script run before
+# the first one's session_state writes are fully visible, so both runs can
+# see "no submission in progress" and both proceed. A real OS-level file lock
+# (using exclusive file creation, which the operating system itself guarantees
+# is atomic even across two processes/threads racing each other) closes that
+# gap completely — only one tap can ever win the race to create the lock file.
+_LOCK_DIR = os.path.join(tempfile.gettempdir(), "cts_checkin_locks")
+os.makedirs(_LOCK_DIR, exist_ok=True)
+
+def try_claim_submission(lock_key, max_age_seconds=20):
+    """
+    Attempts to atomically claim the right to process this submission.
+    Returns True if this call won the claim, False if someone else already
+    has it (a genuine duplicate tap that should be ignored).
+    Stale locks older than max_age_seconds are automatically cleared first,
+    so a crashed/interrupted submission can never block forever.
+    """
+    lock_path = os.path.join(_LOCK_DIR, lock_key + ".lock")
+
+    # Clear stale locks first
+    if os.path.exists(lock_path):
+        try:
+            age = time.time() - os.path.getmtime(lock_path)
+            if age > max_age_seconds:
+                os.remove(lock_path)
+        except OSError:
+            pass
+
+    # os.open with O_CREAT|O_EXCL is an atomic "create only if it doesn't
+    # already exist" operation at the OS level — exactly the primitive we
+    # need to guarantee only one tap can ever win, no matter how close
+    # together two taps land.
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(time.time()).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        return False
+
+def release_submission_claim(lock_key):
+    lock_path = os.path.join(_LOCK_DIR, lock_key + ".lock")
+    try:
+        os.remove(lock_path)
+    except OSError:
+        pass
 
 st.set_page_config(page_title="CTS Patient Check-In", page_icon="🏥", layout="centered")
 
@@ -681,23 +731,20 @@ elif st.session_state.step == "step3":
                     st.session_state.submitted = True
                     st.rerun()
                 else:
-                    # ── Generate a unique token for THIS click and claim it atomically ──
-                    import uuid as _uuid
-                    my_token = str(_uuid.uuid4())
-                    existing_lock = st.session_state.get("submit_lock_token")
-                    lock_time = st.session_state.get("submit_lock_time", 0)
+                    # ── Atomic claim — this is the REAL gatekeeper against rapid
+                    # double-taps, using an OS-level file lock rather than just
+                    # session_state (which isn't safe against two near-simultaneous
+                    # script runs both reading "no submission in progress" before
+                    # either one's write becomes visible to the other) ──
+                    claimed = try_claim_submission(last_key)
 
-                    # If a lock exists but is older than 15 seconds, treat it as stale/abandoned
-                    # (e.g. iPad browser hiccup) and allow this tap to take over rather than
-                    # leaving the button stuck on "Saving..." forever
-                    lock_is_stale = (time.time() - lock_time) > 15
-
-                    if existing_lock is not None and not lock_is_stale:
-                        # Genuine duplicate tap while a submission is actively in progress —
-                        # just ignore this click, do nothing, let the in-progress one finish
+                    if not claimed:
+                        # Another tap already won the race for this exact patient —
+                        # this one is a genuine duplicate; do nothing and let the
+                        # winning submission finish on its own
                         pass
                     else:
-                        st.session_state["submit_lock_token"] = my_token
+                        st.session_state["submit_lock_token"] = last_key
                         st.session_state["submit_lock_time"]  = time.time()
                         st.session_state.submitting = True
 
@@ -818,7 +865,12 @@ if st.session_state.get("submitting") and not st.session_state.get("submitted"):
     finally:
         # ALWAYS runs, even if something above hangs/errors —
         # guarantees the button can never stay stuck on "Saving..."
+        # AND guarantees the atomic file lock is always released so it
+        # never permanently blocks this same patient checking in again.
         st.session_state.submitting = False
+        lock_key_to_release = st.session_state.get("submit_lock_token")
+        if lock_key_to_release:
+            release_submission_claim(lock_key_to_release)
         st.session_state["submit_lock_token"] = None
         st.session_state.pop("pending_sig", None)
     st.session_state.submitted = True
